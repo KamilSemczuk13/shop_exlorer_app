@@ -67,50 +67,6 @@ def get_df_from_db(query):
 
     return df
 
-
-### Cleaning data funtions and maniplualzing data
-
-# Cleaning data
-def cleaning_data(df, col):
-
-    return df[
-        (df[col].notna()) & (df[col].astype(str).str.strip() != "") &
-        (df[col].astype(str).str.strip().str.lower() != "null") & 
-        (df[col].astype(str).str.strip().str.lower() != "none")
-    ]
-
-# Get clean df from data
-def get_cleaned_data(df):
-
-    for col in df.columns:
-        df=cleaning_data(df, col)
-
-    return df
-
-# Maping Months
-def get_map_month(month):
-    month_dict={
-        1:"January",
-        2:"Feburary",
-        3:"March",
-        4:"April",
-        5:"May",
-        6:"June",
-        7:"July",
-        8:"August",
-        9:"September",
-        10:"October",
-        11:"November",
-        12:"December"
-    }
-
-    if month in month_dict:
-        month=month_dict[month]
-    else: 
-        month="Unknown"
-    return month
-
-
 ### Functions to extracting data with sql queries
 
 # Function to get available years in data
@@ -145,7 +101,7 @@ def get_years_filter_to_query_sql(year):
 
     if year is not ALL_YEARS:
         year_group=f", OrderYear"
-        year_having=f"Having TotalSales is not null and OrderYear is not null and OrderYear ='{year}'"
+        year_having=f" AND OrderYear ='{year}'"
 
     return year_group, year_having
 
@@ -191,7 +147,7 @@ def get_top_perfromance_customers(performance, year, country):
             Inner join orderdetails as od
                 On od.OrderID=o.OrderID
             Group by FullName {year_group}
-            {year_having}
+            Having TotalSales is not null {year_having}
         )
 
         Select 
@@ -226,7 +182,7 @@ def get_top_perfromance_products(performance, year, country):
             Inner join orders as o
                 On o.OrderID=od.OrderID
             Group by p.ProductName{year_group}
-            {year_having}
+            Having TotalSales is not null {year_having}
         )
 
         Select 
@@ -271,7 +227,7 @@ def get_top_perfromance_categories(performance, year, country):
             Inner join orders as o
                 On o.OrderID=od.OrderID
             Group by Category_Fixed {year_group}
-            {year_having}
+            Having TotalSales is not null {year_having}
         )
 
         Select 
@@ -307,7 +263,7 @@ def get_top_perfromance_moths(performance, year, country):
             Inner join orders as o
                 On o.OrderID=od.OrderID
             Group by Month {year_group}
-            {year_having}
+            Having TotalSales is not null {year_having}
         )
 
         Select 
@@ -364,7 +320,7 @@ def get_specyfic_client_data(year, customer):
         inner join orderdetails as od
             On O.OrderID=od.OrderID
         Group by o.OrderID,OrderYear, Month
-        Having Concat(c.FirstName, " ", c.LastName)="{customer}"
+        Having Concat(c.FirstName, " ", c.LastName)="{customer}" {year_having}
     '''
 
     # Conecting to db
@@ -440,6 +396,66 @@ def get_specyfic_data_from_any_tab(select,where,from_var):
     return df
 
 ### Function to transform data with python
+
+# Maping Months
+def get_map_month(month):
+    month_dict={
+        1:"January",
+        2:"Feburary",
+        3:"March",
+        4:"April",
+        5:"May",
+        6:"June",
+        7:"July",
+        8:"August",
+        9:"September",
+        10:"October",
+        11:"November",
+        12:"December"
+    }
+
+    if month in month_dict:
+        month=month_dict[month]
+    else: 
+        month="Unknown"
+    return month
+
+# Function to get mapped month
+def get_mapped_month_df(df):
+
+    df["Month_mapped"]=df["Month"].apply(get_map_month)
+
+    return df
+
+# Function to get mapped countries column
+def get_mapped_countries_df(df):
+
+    countries_dict={
+        "polska":"Poland", "pl":"Poland", "poland":"Poland", "polonia":"Poland",
+        "usa":"Usa", "unitedstates":"Usa",
+        "niemcy":"Germany","germany":"Germany", "de":"Germany",
+        "france":"France","fr":"France","francja":"France",
+        "spain":"Spain", "espana":"Spain", "esp":"Spain", "hiszpania":"Spain","españa":"Spain",
+        "china":"China", "Chiny":"China"
+        }
+
+    df["Country_mapped"]=df["Country"].astype(str).str.strip().str.lower().map(countries_dict)
+
+    return df
+
+def get_mapped_categories_df(df):
+    dict_categories={
+        "electronics":"Electronics",
+        "tables":"Tables",
+        "audio":"Audio",
+        "photo":"Photo",
+        "wearables":"Wearables"
+    }
+
+    df["Category_mapped"]=df["Category"].astype(str).str.strip().str.lower().map(dict_categories)
+
+    return df
+
 
 # Building string select
 def build_select(select_col):
@@ -539,7 +555,7 @@ def get_all_data_from_tables(dict_of_cols_tbas):
     customers_where=dict_of_cols_tbas["customers"]["where"]
     orders_where=dict_of_cols_tbas["orders"]["where"]
     orderdetails_where=dict_of_cols_tbas["orderdetails"]["where"]
-    products_where=dict_of_cols_tbas["products"]["select"]
+    products_where=dict_of_cols_tbas["products"]["where"]
 
     # variables to take name of the columns to from in select query
     cust_from_var="Customers"
@@ -578,32 +594,62 @@ def get_all_data_from_tables(dict_of_cols_tbas):
     
     return tabs_dict
 
+# get list of columns from customers table
 def get_customers_select(select_list):
     return select_list
 
+# get list of columns from orders table
 def get_orders_select(select_list):
     return select_list
 
+# get list of columns from orderdetails table
 def get_orderdetails_select(select_list):
     return select_list
 
+# get list of columns from products table
 def get_products_select(select_list):
     return select_list
 
-# Function to get mapped countries column
-def get_mapped_countries_df(df):
-    countries_dict={
-        "polska":"Poland", "pl":"Poland", "poland":"Poland", "polonia":"Poland",
-        "usa":"Usa", "unitedstates":"Usa",
-        "niemcy":"Germany","germany":"Germany", "de":"Germany",
-        "france":"France","fr":"France","francja":"France",
-        "spain":"Spain", "espana":"Spain", "esp":"Spain", "hiszpania":"Spain","españa":"Spain",
-        "china":"China", "Chiny":"China"
-        }
+# get dict of columns from customer table
+def get_customers_where(customer=0,country=0):
 
-    df["Country_mapped"]=df["Country"].astype(str).str.strip().str.lower().map(countries_dict)
+    customers_filter={
+        "Customer":customer,
+        "Country":country
+    }
+    return customers_filter
 
-    return df
+# get dict of columns from orders table
+def get_orders_where(year=0,month=0):
+
+    orders_filters={
+        "Year":year,
+        "Month":month
+    }
+    return orders_filters
+
+# get dict of columns from orderdetails table
+def get_orderdetails_where(quantity=0,unitprice=0):
+    orderdetails_filters={
+        "Quantity":quantity,
+        "UnitPrice":unitprice
+    }
+
+    return orderdetails_filters
+
+# get dict of columns from products table
+def get_products_where(product=0,category=0):
+    products_filters={
+        "Product":product,
+        "Category":category
+    }
+
+    return products_filters
+
+
+
+
+
 # get Top performance countries
 def get_merged_top_performance_country(dict_of_tables, performance):
 
@@ -618,7 +664,10 @@ def get_merged_top_performance_country(dict_of_tables, performance):
     df_o_cl=dict_of_tables["orders"]
     df_od_cl=dict_of_tables["orderdetails"]
 
-    df_c_cl=get_mapped_countries_df(df_c_cl)
+    try:
+        df_c_cl=get_mapped_countries_df(df_c_cl)
+    except Exception as ex:
+        st.error(f"No key of country found, error: {ex}")
         
     df_c_o=df_o_cl.merge(df_c_cl, how="left",on="CustomerID")
     df_c_o_od=df_c_o.merge(df_od_cl, how="inner", on="OrderID")
@@ -630,6 +679,44 @@ def get_merged_top_performance_country(dict_of_tables, performance):
     df_grouped_country_sales["RankedSales"]=df_grouped_country_sales["Total_Sale"].rank(ascending=performance)
 
     return df_grouped_country_sales
+
+def get_merged_categories_sales_of_client(dict_of_tables):
+    # c-> customers
+    # o-> orders
+    # od-> orderdetails
+    # p -> products
+
+    # Geting data from every tab nedeed
+    df_c_cl=dict_of_tables["customers"]
+    df_o_cl=dict_of_tables["orders"]
+    df_od_cl=dict_of_tables["orderdetails"]
+    df_p_cl=dict_of_tables["products"]
+
+    try:
+        df_o_cl=get_mapped_month_df(df_o_cl)
+    except Exception as ex:
+        st.error(f"No key of month found, error: {ex}")
+                 
+    try:
+        df_p_cl=get_mapped_categories_df(df_p_cl)
+    except Exception as ex:
+        st.error(f"No key of category found, error: {ex}")
+
+    df_c_o=df_o_cl.merge(df_c_cl, how="inner",on="CustomerID")
+    df_c_o_od=df_c_o.merge(df_od_cl, how="inner", on="OrderID")
+    df_c_o_od_p=df_c_o_od.merge(df_p_cl, how="inner", on="ProductID")
+    df_c_o_od_p["Total_Sale"]=df_c_o_od_p["Quantity"]*df_c_o_od_p["UnitPrice"]
+
+    # get df with avreage and sum of monthly Total sales of categories
+    df_grouped_categories_sales=(df_c_o_od_p.groupby(["Category_mapped","Month_mapped"]).agg(
+
+        Avg_Sale=("Total_Sale","mean"),
+        Total_Sale_Category=("Total_Sale","sum")
+
+    )).reset_index()
+
+    return df_grouped_categories_sales
+
 
 ### FUNCTIONS to visualise data
 
@@ -678,7 +765,7 @@ def leaderboard_html_inline(df, name_col, score_col, rank_col, performance):
     return "\n".join(items)
 
 # Get monthly total sales chart
-def get_monthly_sales_chart(df, type_of_sales, customer):
+def get_monthly_sales_chart(df, type_of_sales, customer,year):
 
     sales_desc={
         "TotalSales":"Total Sales",
@@ -700,7 +787,7 @@ def get_monthly_sales_chart(df, type_of_sales, customer):
     )
 
     # Tittle and series osi
-    ax.set_title(f"Monthly {sales_desc[type_of_sales]} of {customer}", fontsize=16)
+    ax.set_title(f"Monthly {sales_desc[type_of_sales]} of {customer} in {year}", fontsize=16)
     ax.set_xlabel("Month", fontsize=12)
     ax.set_ylabel(f"{sales_desc[type_of_sales]}", fontsize=12)
 
@@ -709,24 +796,46 @@ def get_monthly_sales_chart(df, type_of_sales, customer):
 
     return fig
 
+def get_barplot_of_category_client_monthly_sales(df,customer,category,year):
+
+    fig, ax=plt.subplots(figsize=(6,3))
+
+    sns.barplot(
+        data=df,
+        x="Month_mapped",
+        y="Total_Sale_Category",
+        hue="Category_mapped"
+    )
+
+    ax.set_title(f"{customer}`s monthly {category} sales in {year}")
+
+    ax.set_ylabel("Total Sales")
+    ax.set_xlabel("Month")
+
+    ax.legend(title="Year", title_fontsize=12, fontsize=10, loc='upper right')
+
+    return fig
+
+
+
 
 # Function to Display average an total sales of customer 
-def display_charts_monthly_sales_per_customer(df, customer):
+def display_charts_monthly_sales_per_customer(df, customer, year):
 
-    st.info(f"The chart showing monthly Sales of {customer} 🔻")
+    st.info(f"The chart showing monthly Sales of {customer} 🔻in {year}")
     # Seaborn style
     
     # Get total sales chart
-    fig=get_monthly_sales_chart(df, "TotalSales",customer)
+    fig=get_monthly_sales_chart(df, "TotalSales",customer, year)
 
     # Displaying in Streamlit 
     st.pyplot(fig)
     st.markdown("")
 
-    st.info(f"The chart showing monthly Average Sales of {customer} 🔻")
+    st.info(f"The chart showing monthly Average Sales of {customer} 🔻 in {year}")
 
     # Get average sales 
-    fig=get_monthly_sales_chart(df,"AvgSales",customer)
+    fig=get_monthly_sales_chart(df,"AvgSales",customer,year)
 
     # Displaying in Streamlit 
     st.pyplot(fig)
@@ -768,7 +877,7 @@ if st.session_state["page"]=="main":
             # Extracting data of the avaliable years in data
             year_top=get_years_filter_from_data()
 
-            st.session_state["year_top"]=st.selectbox("Choose the year to analyse", year_top, index=0)
+            st.session_state["year_top"]=st.selectbox("📅 Choose the year to analyse", year_top, index=0)
             year=st.session_state["year_top"]
 
         
@@ -816,27 +925,19 @@ if st.session_state["page"]=="main":
             description=get_description_text_top_mode(performance, "Countries", "Total Sales", year)
             st.info(description)
 
+            # selected columns from tabs that are neded
             customers_select=get_customers_select(["CustomerID","Country"])
             orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","strftime('%Y', OrderDate) AS Year"])
             orderdetails_select=get_orderdetails_select(["OrderID","Quantity","UnitPrice"])
             products_select=get_products_select(0)
 
-            customers_filter={
-                "Customer":0,
-            }
-            orders_filters={
-                "Year":year,
-                "Month":0
-            }
-            orderdetails_filters={
-                "Year":0,
-                "Month":0
-            }
-            products_filters={
-                "Product":0
-            }
+            # selected columns from tabs to build where that is nedeed
+            customers_filters=get_customers_where(customer=0,country=0)
+            orders_filters=get_orders_where(year=year,month=0)
+            orderdetails_filters=get_orderdetails_where(quantity=0,unitprice=0)
+            products_filters=get_products_where(product=0,category=0)
 
-            filters=[customers_filter,orders_filters,orderdetails_filters,products_filters]
+            filters=[customers_filters,orders_filters,orderdetails_filters,products_filters]
 
             list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
 
@@ -853,36 +954,59 @@ if st.session_state["page"]=="main":
     # Mode client
     if st.session_state["mode"]==MODE_CLIENT:
 
-        client_df=get_clients_from_db()
-        st.session_state["client_one"]=st.selectbox("Choose the clinent who you want to search deeply", client_df["Name"], index=0)
-        client=st.session_state["client_one"]
-
         tab1, tab2, tab3 = st.tabs([
             "📆 Monthly Sales Overview",
             "📊 Category Share per Client",
             "🛒 Product Purchase Insights"
         ])
+
         with st.sidebar:
 
             st.info("Click tabs below to view sales performance by customer, product, and more 👇")
 
             # Get available years from data
+
+            client_df=get_clients_from_db()
+            st.session_state["client_one"]=st.selectbox("👤 Choose the clinent who you want to search deeply", client_df["Name"], index=0)
+            client=st.session_state["client_one"]
+
             year=get_years_filter_from_data()
-            st.session_state["year_client"]=st.selectbox("Choose the year to analyse", year, index=0)
+            st.session_state["year_client"]=st.selectbox("📅 Choose the year to analyse", year, index=0)
             year=st.session_state["year_client"]
+
         with tab1:
 
             customer_spec_df=get_specyfic_client_data(year,client)
 
             # Display visualization chart
-            display_charts_monthly_sales_per_customer(customer_spec_df, client)
+            display_charts_monthly_sales_per_customer(customer_spec_df, client, year)
         
         with tab2:
+            
+            customers_select=get_customers_select(["CustomerID","Concat(FirstName,' ',LastName) AS Customer"])
+            orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","strftime('%Y', OrderDate) AS Year","round(strftime('%m', OrderDate),0) AS Month"])
+            orderdetails_select=get_orderdetails_select(["OrderID","ProductID","Quantity","UnitPrice"])
+            products_select=get_products_select(["ProductID","Category"])
+
+            customers_filters=get_customers_where(customer=client,country=0)
+            orders_filters=get_orders_where(year=year,month=0)
+            orderdetails_filters=get_orderdetails_where(quantity=0,unitprice=0)
+            products_filters=get_products_where(product=0,category=0)
+
+            filters=[customers_filters,orders_filters,orderdetails_filters,products_filters]
+
+            list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
+
+            dict_select_where=creating_dict_to_sql_query(list_column_of_tabs,filters)
+
+            # Dictionary of dataframes with specyfic tab data
+            dict_df_of_tabs=get_all_data_from_tables(dict_select_where)
 
             # Get Categories of client
-            df_categories_of_client=get_categories_of_the_client(year, client)
+            df_categories_of_client=get_merged_categories_sales_of_client(dict_df_of_tabs)
+            fig=get_barplot_of_category_client_monthly_sales(df_categories_of_client,client,"",year)
 
-            st.dataframe(df_categories_of_client)
+            st.pyplot(fig)
 
     # Mode products
     if st.session_state["mode"]==PRDUCT_INSIGHTS:
