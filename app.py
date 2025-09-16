@@ -647,9 +647,6 @@ def get_products_where(product=0,category=0):
     return products_filters
 
 
-
-
-
 # get Top performance countries
 def get_merged_top_performance_country(dict_of_tables, performance):
 
@@ -680,6 +677,9 @@ def get_merged_top_performance_country(dict_of_tables, performance):
 
     return df_grouped_country_sales
 
+
+
+# Function to get df of merged categories of client sales
 def get_merged_categories_sales_of_client(dict_of_tables):
     # c-> customers
     # o-> orders
@@ -708,7 +708,7 @@ def get_merged_categories_sales_of_client(dict_of_tables):
     df_c_o_od_p["Total_Sale"]=df_c_o_od_p["Quantity"]*df_c_o_od_p["UnitPrice"]
 
     # get df with avreage and sum of monthly Total sales of categories
-    df_grouped_categories_sales=(df_c_o_od_p.groupby(["Category_mapped","Month_mapped"]).agg(
+    df_grouped_categories_sales=(df_c_o_od_p.groupby(["Category_mapped","Month_mapped","Month","Year"]).agg(
 
         Avg_Sale=("Total_Sale","mean"),
         Total_Sale_Category=("Total_Sale","sum")
@@ -717,6 +717,22 @@ def get_merged_categories_sales_of_client(dict_of_tables):
 
     return df_grouped_categories_sales
 
+# Fucntion to get dictionary categories 
+def get_dict_of_df_categories(df):
+
+    df=get_merged_categories_sales_of_client(df)
+    dict_df={}
+    existing_keys=[]
+
+    for value in df["Category_mapped"]:
+        if value in existing_keys:
+            continue
+        existing_keys.append(value)
+        df_get=df[df["Category_mapped"]==value]
+        df_get=df_get.sort_values("Month", ascending=True)
+        dict_df[value]=df_get
+
+    return dict_df
 
 ### FUNCTIONS to visualise data
 
@@ -796,6 +812,27 @@ def get_monthly_sales_chart(df, type_of_sales, customer,year):
 
     return fig
 
+# Function to Display average and total sales of customer 
+def display_charts_monthly_sales_per_customer(df, customer, year):
+
+    st.info(f"The chart showing monthly Sales of {customer} in {year}🔻 ")
+    # Seaborn style
+    
+    # Get total sales chart
+    fig=get_monthly_sales_chart(df, "TotalSales",customer, year)
+
+    # Displaying in Streamlit 
+    st.pyplot(fig)
+    st.markdown("")
+
+    st.info(f"The chart showing monthly Average Sales of {customer} in {year}🔻")
+
+    # Get average sales 
+    fig=get_monthly_sales_chart(df,"AvgSales",customer,year)
+
+    # Displaying in Streamlit 
+    st.pyplot(fig)
+
 def get_barplot_of_category_client_monthly_sales(df,customer,category,year):
 
     fig, ax=plt.subplots(figsize=(6,3))
@@ -804,7 +841,7 @@ def get_barplot_of_category_client_monthly_sales(df,customer,category,year):
         data=df,
         x="Month_mapped",
         y="Total_Sale_Category",
-        hue="Category_mapped"
+        hue="Year"
     )
 
     ax.set_title(f"{customer}`s monthly {category} sales in {year}")
@@ -816,30 +853,19 @@ def get_barplot_of_category_client_monthly_sales(df,customer,category,year):
 
     return fig
 
+# Function to Display monthly total sales of customer from each category
+def display_plots_monthly_sales_categories_per_customer(dict_df, customer, year):
 
+    for key, val in dict_df.items(): 
+        st.info(f"The chart showing {customer}`s monthly {key} sales in {year}🔻 ")
+        # Seaborn style
+        
+        # Get total sales chart
+        fig=get_barplot_of_category_client_monthly_sales(val, customer,key,year)
 
-
-# Function to Display average an total sales of customer 
-def display_charts_monthly_sales_per_customer(df, customer, year):
-
-    st.info(f"The chart showing monthly Sales of {customer} 🔻in {year}")
-    # Seaborn style
-    
-    # Get total sales chart
-    fig=get_monthly_sales_chart(df, "TotalSales",customer, year)
-
-    # Displaying in Streamlit 
-    st.pyplot(fig)
-    st.markdown("")
-
-    st.info(f"The chart showing monthly Average Sales of {customer} 🔻 in {year}")
-
-    # Get average sales 
-    fig=get_monthly_sales_chart(df,"AvgSales",customer,year)
-
-    # Displaying in Streamlit 
-    st.pyplot(fig)
-
+        # Displaying in Streamlit 
+        st.pyplot(fig)
+        st.markdown("")
 
 ##
 ### MAIN
@@ -954,8 +980,9 @@ if st.session_state["page"]=="main":
     # Mode client
     if st.session_state["mode"]==MODE_CLIENT:
 
-        tab1, tab2, tab3 = st.tabs([
+        tab1, tab2, tab3, tab4 = st.tabs([
             "📆 Monthly Sales Overview",
+            "📊 Category Sales",
             "📊 Category Share per Client",
             "🛒 Product Purchase Insights"
         ])
@@ -1002,11 +1029,11 @@ if st.session_state["page"]=="main":
             # Dictionary of dataframes with specyfic tab data
             dict_df_of_tabs=get_all_data_from_tables(dict_select_where)
 
-            # Get Categories of client
-            df_categories_of_client=get_merged_categories_sales_of_client(dict_df_of_tabs)
-            fig=get_barplot_of_category_client_monthly_sales(df_categories_of_client,client,"",year)
+            # Get dictionary of every category that client bought product from
+            dict_df=get_dict_of_df_categories(dict_df_of_tabs)
 
-            st.pyplot(fig)
+            # display_plots_monthly_sales_categories_per_customer(dict_df,client,year)
+            display_plots_monthly_sales_categories_per_customer(dict_df, client, year)
 
     # Mode products
     if st.session_state["mode"]==PRDUCT_INSIGHTS:
