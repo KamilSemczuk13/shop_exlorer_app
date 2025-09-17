@@ -1,11 +1,9 @@
 # 🛒 Shop Data Explorer
 
-Projekt stworzony jako część mojego **portfolio Data Engineering**.  
-Aplikacja w **Streamlit**, która pozwala analizować sprzedaż w sklepie online – m.in. ranking klientów, produktów, kategorii i miesięcy.  
+A project created as part of my **Data Engineering portfolio**.  
+An interactive **Streamlit app** for exploring online shop sales data – including customer rankings, product/category insights, and monthly trends.  
 
-🔹 **Technologie:** Python, SQLite, Streamlit, Pandas, Matplotlib/Seaborn  
-🔹 **Funkcje:** filtrowanie po latach, analiza najlepszych/najsłabszych klientów i produktów, wizualizacje sprzedaży  
+🔹 **Tech stack**: Python, SQLite, Streamlit, Pandas, Matplotlib/Seaborn  
+🔹 **Features**: year-based filtering, analysis of top/worst customers and products, sales visualizations  
 
-👉 Pełne portfolio z innymi projektami: https://kamilsemczuk13.github.io/ds_portfolio_ENG/
-
-
+👉 Full portfolio with other projects: [My Portfolio](https://kamilsemczuk13.github.io/ds_portfolio_ENG/)
