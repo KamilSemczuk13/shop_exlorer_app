@@ -19,6 +19,11 @@ PRDUCT_INSIGHTS="📦 Product Insights"
 BEST_PERFORMANCE="BEST 📈"
 WORST_PERFORMANCE="WORST 📉"
 
+AVG_SALES = "📊 Average Sales"
+TOTAL_SALES = "💰 Total Sales"
+MAX_SALE = "🏆 Maximum Sale"
+MIN_SALE = "📉 Minimum Sale"
+
 ALL_YEARS="All of the years"
 
 
@@ -84,26 +89,45 @@ def get_years_filter_from_data():
     # Conecting to db
     data=get_df_from_db(query)
 
-    available_years=[]
-    available_years.append(ALL_YEARS)
-    for element in data["OrderYear"]:
-        available_years.append(element)
+    available_years=[year for year in data["OrderYear"]]
+
+    # available_years.append(ALL_YEARS)
+    # for element in data["OrderYear"]:
+    #     available_years.append(element)
     
     return available_years
 
 
+def get_string_of_years_to_filter(years):
 
+    years.sort()
+    conditions=[]
+    for year in years:
+        conditions.append(year)
+    return '('+','.join(conditions)+')'
 
 # Function to get years filters to sql query
-def get_years_filter_to_query_sql(year):
-    year_group=""
-    year_having=""
+def get_years_filter_to_query_sql(years):
 
-    if year is not ALL_YEARS:
-        year_group=f", OrderYear"
-        year_having=f" AND OrderYear ='{year}'"
+    year=get_string_of_years_to_filter(years)
+
+    year_group=f", OrderYear"
+    year_having=f" AND OrderYear in {year} "
 
     return year_group, year_having
+
+
+# Function to get choosen metric of slaes directly to sql query
+def get_metric_sale_sql(sale):
+
+    sale_dict={
+        TOTAL_SALES:"SUM",
+        AVG_SALES:"AVG",
+        MAX_SALE:"MAX",
+        MIN_SALE:"MIN"
+    }
+
+    return sale_dict[sale]
 
 # Function to get choosen performance directly to sql query
 def get_performance_sql(performance):
@@ -127,8 +151,10 @@ def get_performance_python(performance):
     
 
 # Function to get customers performance from data
-def get_top_perfromance_customers(performance, year, country):
+def get_top_perfromance_customers(performance, year, sale):
 
+    #Get metric of sale
+    sale=get_metric_sale_sql(sale)
      # Filtring per performance
     performance=get_performance_sql(performance)
 
@@ -137,10 +163,10 @@ def get_top_perfromance_customers(performance, year, country):
     query=f'''
         With RankedClientsTab AS(
             Select 
-                strftime('%Y', o.OrderDate) AS OrderYear,
+                round(strftime('%Y', o.OrderDate)) AS OrderYear,
                 CONCAT(c.FirstName, " ",c.LastName) AS FullName,
-                SUM(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by SUM(od.UnitPrice * od.Quantity) {performance}) AS RankedClientsBySales
+                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
+                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedClientsBySales
             From customers as c
             Inner join orders as o
                 On c.CustomerID=o.CustomerID
@@ -162,8 +188,10 @@ def get_top_perfromance_customers(performance, year, country):
     return df_customers_top
 
 # Function to get products performance from data
-def get_top_perfromance_products(performance, year, country):
+def get_top_perfromance_products(performance, year, sale):
 
+    #Get metric of sale
+    sale=get_metric_sale_sql(sale)
     # Filtring per performance
     performance=get_performance_sql(performance)
 
@@ -172,10 +200,10 @@ def get_top_perfromance_products(performance, year, country):
     query=f'''
         With RankedProductsTab AS(
             Select 
-                strftime('%Y', o.OrderDate) AS OrderYear,
+                round(strftime('%Y', o.OrderDate)) AS OrderYear,
                 p.ProductName,
-                SUM(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by SUM(od.UnitPrice * od.Quantity) {performance}) AS RankedProductsBySales
+                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
+                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedProductsBySales
             From products as p
             Inner join orderdetails as od
                 On od.ProductID=p.ProductID
@@ -199,9 +227,12 @@ def get_top_perfromance_products(performance, year, country):
     return df_products_top
 
 # Function to get categories performance from data
-def get_top_perfromance_categories(performance, year, country):
+def get_top_perfromance_categories(performance, year, sale):
 
-     # Filtring per performance
+    #Get metric of sale
+    sale=get_metric_sale_sql(sale)
+
+    # Get Filter of performance
     performance=get_performance_sql(performance)
 
     year_group, year_having=get_years_filter_to_query_sql(year)
@@ -210,7 +241,7 @@ def get_top_perfromance_categories(performance, year, country):
     query=f'''
         With RankedCategoryTab AS(
             Select 
-                strftime('%Y', o.OrderDate) AS OrderYear,
+                round(strftime('%Y', o.OrderDate)) AS OrderYear,
                 Case 
                     When replace(lower(p.Category), " ", "") = "electronics" Then "Electronics"
                     When replace(lower(p.Category)," ","")="audio" Then "Audio"
@@ -219,8 +250,8 @@ def get_top_perfromance_categories(performance, year, country):
                     When replace(lower(p.Category), " ","")="wearables" Then "Wearables"
                     ELSE p.Category
                 END AS Category_Fixed,
-                SUM(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by SUM(od.UnitPrice * od.Quantity) {performance}) AS RankedCategorysBySales
+                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
+                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedCategorysBySales
             From products as p
             Inner join orderdetails as od
                 On od.ProductID=p.ProductID
@@ -242,8 +273,9 @@ def get_top_perfromance_categories(performance, year, country):
     return df_categories_top
 
 
-def get_top_perfromance_moths(performance, year, country):
+def get_top_perfromance_moths(performance, year, sale):
 
+    sale=get_metric_sale_sql(sale)
      # Filtring per performance
     performance=get_performance_sql(performance)
 
@@ -253,10 +285,10 @@ def get_top_perfromance_moths(performance, year, country):
     query=f'''
         With RankedMonthTab AS(
             Select 
-                strftime('%Y', o.OrderDate) AS OrderYear,
+                round(strftime('%Y', o.OrderDate)) AS OrderYear,
                 round(strftime('%m',OrderDate),0) AS Month,
-                SUM(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by SUM(od.UnitPrice * od.Quantity) {performance}) AS RankedMonthsBySales
+                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
+                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedMonthsBySales
             From products as p
             Inner join orderdetails as od
                 On od.ProductID=p.ProductID
@@ -301,6 +333,92 @@ def get_clients_from_db():
     clients_df=get_df_from_db(query)
     return clients_df
 
+# Get info about client sales across the years
+def get_client_data_sales_across_years(year, customer):
+
+    year_group, year_having=get_years_filter_to_query_sql(year)
+    country=""
+
+    query=f'''
+
+        Select
+            Concat(c.FirstName, " ", c.LastName) AS Customer,
+            round(strftime('%Y', o.OrderDate)) AS OrderYear,
+            SUM(od.UnitPrice * od.Quantity) AS TotalSales
+        From customers as c
+        Inner join orders as o
+            On c.CustomerID=o.CustomerID
+        inner join orderdetails as od
+            On O.OrderID=od.OrderID
+        Group by Customer, OrderYear
+        Having TotalSales is not null AND Customer="{customer}" {year_having}
+    '''
+
+    # Conecting to db
+    df_customer_spec=get_df_from_db(query)
+
+    # Cleaning data
+    # df_customer_spec = df_customer_spec.dropna(subset=["Month"])
+    # df_customer_spec["Month_normal"]=df_customer_spec["Month"].apply(get_map_month)
+    # df_customer_spec=df_customer_spec.sort_values("Month", ascending=True)
+
+    return df_customer_spec
+
+# Get info about client sales across the years
+def get_client_data_sahre_of_sale_across_years(year, customer):
+
+    year_group, year_having=get_years_filter_to_query_sql(year)
+    country=""
+
+    query=f'''
+        With GrupedSalesCustomerYears AS(
+	SELECT
+		Concat(c.FirstName, " ", c.LastName) AS Customer,
+		round(strftime('%Y', o.OrderDate)) AS OrderYear,
+		SUM(od.UnitPrice * od.Quantity) AS TotalSales
+	From customers as c
+	Inner join orders as o
+		On c.CustomerID=o.CustomerID
+	inner join orderdetails as od
+		On O.OrderID=od.OrderID
+	Group by Customer,OrderYear
+	Having TotalSales is not null AND Concat(c.FirstName, " ", c.LastName)="{customer}" {year_having}
+    ),
+
+    GruopedSalesYears AS(
+        Select
+            round(strftime('%Y', o.OrderDate)) AS OrderYear,
+            SUM(od.UnitPrice * od.Quantity) AS TotalSales
+        From customers as c
+        Inner join orders as o
+            On c.CustomerID=o.CustomerID
+        inner join orderdetails as od
+            On O.OrderID=od.OrderID
+        Group by OrderYear
+        Having TotalSales is not null {year_having}
+    )
+
+
+    Select 
+        gscy.Customer,
+        gscy.OrderYear,
+        (round((gscy.TotalSales/gsy.TotalSales),2) * 100 ) AS ShareOfSale
+    From GrupedSalesCustomerYears as gscy
+    Inner join GruopedSalesYears as gsy
+        On gscy.OrderYear=gsy.OrderYear
+    '''
+
+    # Conecting to db
+    df_customer_spec=get_df_from_db(query)
+
+    # Cleaning data
+    # df_customer_spec = df_customer_spec.dropna(subset=["Month"])
+    # df_customer_spec["Month_normal"]=df_customer_spec["Month"].apply(get_map_month)
+    # df_customer_spec=df_customer_spec.sort_values("Month", ascending=True)
+
+    return df_customer_spec
+
+# Get info about client moyhly sale
 def get_specyfic_client_data(year, customer):
 
     year_group, year_having=get_years_filter_to_query_sql(year)
@@ -310,7 +428,7 @@ def get_specyfic_client_data(year, customer):
 
         Select
             o.OrderID as OrderID,
-            strftime('%Y', o.OrderDate) AS OrderYear,
+            round(strftime('%Y', o.OrderDate)) AS OrderYear,
             round(strftime('%m',OrderDate),0) AS Month,
             SUM(od.UnitPrice * od.Quantity) AS TotalSales,
             AVG(od.UnitPrice * od.Quantity) AS AvgSales
@@ -476,13 +594,24 @@ def build_select(select_col):
 def build_where(where_col: dict):
     conditions = []
     for col, val in where_col.items():
+
+        # Checking if value is list for example 2022,2023 year
+        if isinstance(val, list):
+            string_transformed=f"{col} in"
+            string_transformed+=get_string_of_years_to_filter(val)
+            return string_transformed
+        
         if val in [0, ALL_YEARS]:
             continue  # are not paying attention on 0 values
         if isinstance(val, str):
             conditions.append(f"{col}='{val}'")
-        else:
+        elif isinstance(val, int):
             conditions.append(f"{col}={val}")
-
+        else:
+            string_transformed=f"{col} in"
+            string_transformed+=get_string_of_years_to_filter(val)
+            return conditions.append(string_transformed)
+        
     if not conditions:  # if every of the value is 0
         return 0   # retrun 0 if every value is 0
 
@@ -788,27 +917,40 @@ def get_monthly_sales_chart(df, type_of_sales, customer,year):
         "AvgSales": "Average Sales"
     }
 
-    sns.set_style("whitegrid")  
-    sns.set_palette("tab10")    
 
-    # creating plot
-    fig, ax = plt.subplots(figsize=(10,5))
-    sns.lineplot(
+    # Styl wykresu
+    sns.set_style("whitegrid")
+
+    # Paleta kolorów — 5 stałych, bez odchyleń
+    custom_palette = sns.light_palette("blue", n_colors=len(df["OrderYear"].unique()))
+    sns.set_palette(custom_palette)
+
+    # Tworzenie wykresu
+    fig, ax = plt.subplots(figsize=(8, 3))  # szerszy, niższy kontener
+
+    sns.barplot(
         x="Month_normal",
         y=f"{type_of_sales}",
         hue="OrderYear",
         data=df,
-        marker="o",   
-        ax=ax
+        ax=ax,
+        dodge=True,         # rozdziela słupki dla hue
+        width=0.6,  # zmniejsza szerokość słupków
     )
 
-    # Tittle and series osi
-    ax.set_title(f"Monthly {sales_desc[type_of_sales]} of {customer} in {year}", fontsize=16)
-    ax.set_xlabel("Month", fontsize=12)
-    ax.set_ylabel(f"{sales_desc[type_of_sales]}", fontsize=12)
+    # Tytuł i etykiety osi
+    ax.set_title(f"Monthly {sales_desc[type_of_sales]} of {customer} in {year}", fontsize=14)
+    ax.set_xlabel("Month", fontsize=10)
+    ax.set_ylabel(f"{sales_desc[type_of_sales]}", fontsize=10)
 
-    # adding legend
-    ax.legend(title="Year", title_fontsize=12, fontsize=10, loc='upper left')
+    # Etykiety osi X — mniejsze i obrócone
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, fontsize=8)
+
+    # Legenda — mniejsza czcionka, stała pozycja
+    ax.legend(title="Year", title_fontsize=10, fontsize=8, loc='upper left')
+
+    # Zmniejszenie marginesu dolnego
+    plt.subplots_adjust(bottom=0.25)
 
     return fig
 
@@ -833,9 +975,10 @@ def display_charts_monthly_sales_per_customer(df, customer, year):
     # Displaying in Streamlit 
     st.pyplot(fig)
 
+# Create plot of sales of the categories that customer bought product from
 def get_barplot_of_category_client_monthly_sales(df,customer,category,year):
 
-    fig, ax=plt.subplots(figsize=(6,3))
+    fig, ax=plt.subplots(figsize=(5,2))
 
     sns.barplot(
         data=df,
@@ -901,59 +1044,64 @@ if st.session_state["page"]=="main":
             performance=st.session_state["performance_top"]
         
             # Extracting data of the avaliable years in data
+        
+            type_of_sale=st.radio("📊 Select metric:",[TOTAL_SALES,AVG_SALES,MAX_SALE,MIN_SALE])
+
             year_top=get_years_filter_from_data()
 
-            st.session_state["year_top"]=st.selectbox("📅 Choose the year to analyse", year_top, index=0)
+            st.session_state["year_top"]=st.multiselect("📅 Choose the year to analyse", year_top, default=year_top[-1])
             year=st.session_state["year_top"]
 
-        
+        years_to_desc=get_string_of_years_to_filter(year)
         with tab1:
 
-            description=get_description_text_top_mode(performance, "Customers", "Total Sales", year)
+            st.markdown(get_string_of_years_to_filter(year))
+
+            description=get_description_text_top_mode(performance, "Customers", "Total Sales", years_to_desc)
             st.info(description)
 
             # Get df of the customers performance
-            df_customers_top = get_top_perfromance_customers(performance, year, "")
+            df_customers_top = get_top_perfromance_customers(performance, year, type_of_sale)
             leaderboard_customers = leaderboard_html_inline(df_customers_top, "FullName","TotalSales","RankedClientsBySales",performance)
             st.markdown(leaderboard_customers, unsafe_allow_html=True)
 
         with tab2:
             
-            description=get_description_text_top_mode(performance, "Products", "Total Sales", year)
+            description=get_description_text_top_mode(performance, "Products", "Total Sales", years_to_desc)
             st.info(description)
 
             # Get df of the products performance
-            df_products_top=get_top_perfromance_products(performance,year,"")
+            df_products_top=get_top_perfromance_products(performance,year,type_of_sale)
             leaderboard_products = leaderboard_html_inline(df_products_top,"ProductName", "TotalSales", "RankedProductsBySales", performance)
             st.markdown(leaderboard_products, unsafe_allow_html=True)
 
         with tab3:
 
-            description=get_description_text_top_mode(performance, "Categories", "Total Sales", year)
+            description=get_description_text_top_mode(performance, "Categories", "Total Sales", years_to_desc)
             st.info(description)
 
             # Get df of the categories performance
-            df_categories_top=get_top_perfromance_categories(performance,year,"")
+            df_categories_top=get_top_perfromance_categories(performance,year,type_of_sale)
             leaderboard_categories = leaderboard_html_inline(df_categories_top,"Category_Fixed", "TotalSales", "RankedCategorysBySales",performance)
             st.markdown(leaderboard_categories, unsafe_allow_html=True)
 
         with tab4:
 
-            description=get_description_text_top_mode(performance, "Months", "Total Sales", year)
+            description=get_description_text_top_mode(performance, "Months", "Total Sales", years_to_desc)
             st.info(description)
 
             # Get df of the month performance
-            df_months_top=get_top_perfromance_moths(performance,year,"")
+            df_months_top=get_top_perfromance_moths(performance,year,type_of_sale)
             leaderboard_months = leaderboard_html_inline(df_months_top,"Month_Maped", "TotalSales", "RankedMonthsBySales", performance)
             st.markdown(leaderboard_months, unsafe_allow_html=True)
 
         with tab5:
-            description=get_description_text_top_mode(performance, "Countries", "Total Sales", year)
+            description=get_description_text_top_mode(performance, "Countries", "Total Sales", years_to_desc)
             st.info(description)
 
             # selected columns from tabs that are neded
             customers_select=get_customers_select(["CustomerID","Country"])
-            orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","strftime('%Y', OrderDate) AS Year"])
+            orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","round(strftime('%Y', OrderDate)) AS Year"])
             orderdetails_select=get_orderdetails_select(["OrderID","Quantity","UnitPrice"])
             products_select=get_products_select(0)
 
@@ -998,23 +1146,34 @@ if st.session_state["page"]=="main":
             client=st.session_state["client_one"]
 
             year=get_years_filter_from_data()
-            st.session_state["year_client"]=st.selectbox("📅 Choose the year to analyse", year, index=0)
+            st.session_state["year_client"]=st.multiselect("📅 Choose the year to analyse", year, year[-1])
             year=st.session_state["year_client"]
 
+        year_to_desc=get_string_of_years_to_filter(year)
         with tab1:
+            
+            st.dataframe(get_client_data_sales_across_years(year,client))
+            st.dataframe(get_client_data_sahre_of_sale_across_years(year, client))
+            
+            # col1,col2=st.columns(2)
 
+            # with col1:
             customer_spec_df=get_specyfic_client_data(year,client)
+            #     # Display visualization chart
+            #     display_charts_monthly_sales_per_customer(customer_spec_df, client, year_to_desc)
+            # with col2:
 
-            # Display visualization chart
-            display_charts_monthly_sales_per_customer(customer_spec_df, client, year)
+            display_charts_monthly_sales_per_customer(customer_spec_df, client, year_to_desc)
         
         with tab2:
             
+            # get column to select from each tab
             customers_select=get_customers_select(["CustomerID","Concat(FirstName,' ',LastName) AS Customer"])
-            orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","strftime('%Y', OrderDate) AS Year","round(strftime('%m', OrderDate),0) AS Month"])
+            orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","round(strftime('%Y', OrderDate)) AS Year","round(strftime('%m', OrderDate),0) AS Month"])
             orderdetails_select=get_orderdetails_select(["OrderID","ProductID","Quantity","UnitPrice"])
             products_select=get_products_select(["ProductID","Category"])
 
+            # get column with value to build where
             customers_filters=get_customers_where(customer=client,country=0)
             orders_filters=get_orders_where(year=year,month=0)
             orderdetails_filters=get_orderdetails_where(quantity=0,unitprice=0)
@@ -1033,7 +1192,7 @@ if st.session_state["page"]=="main":
             dict_df=get_dict_of_df_categories(dict_df_of_tabs)
 
             # display_plots_monthly_sales_categories_per_customer(dict_df,client,year)
-            display_plots_monthly_sales_categories_per_customer(dict_df, client, year)
+            display_plots_monthly_sales_categories_per_customer(dict_df, client, year_to_desc)
 
     # Mode products
     if st.session_state["mode"]==PRDUCT_INSIGHTS:
