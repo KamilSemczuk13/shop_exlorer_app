@@ -27,7 +27,7 @@ Python, SQLite, Streamlit, Pandas, Matplotlib, Seaborn
 
 ## 👉 Portfolio
 
-Learn more about this project: [Shop Data Explorer](https://kamilsemczuk13.github.io/ds_portfolio_ENG/Data%20Engineering/Shop/)
+Learn more about this project: [Shop Data Explorer](https://kamilsemczuk13.github.io/ds_portfolio_ENG/Data_Engineering/Shop/)
 
 
 My portfolio with every project: [My Portfolio](https://kamilsemczuk13.github.io/ds_portfolio_ENG/)
