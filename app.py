@@ -1,33 +1,63 @@
+# Streamlit app - UI only, logic is in src/
+
 import streamlit as st
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-import sqlite3
-import html as html_std
 
-#### STATIC VARIABLES
-
-DB_PATH="db_shop.db"
-
-CUSTOMER_SEC="Check specyfic client"
-PRODUCTS_SEC="Check products "
-
-MODE_TOP="🥇Top Performance"
-MODE_CLIENT="🔍 Deep Dive: Client"
-PRDUCT_INSIGHTS="📦 Product Insights"
-
-BEST_PERFORMANCE="BEST 📈"
-WORST_PERFORMANCE="WORST 📉"
-
-AVG_SALES = "📊 Average Sales"
-TOTAL_SALES = "💰 Total Sales"
-MAX_SALE = "🏆 Maximum Sale"
-MIN_SALE = "📉 Minimum Sale"
-
-RAW_DATA="🗃️ Raw data"
-CLEAN_DATA="🧹 Clean data"
-
-ALL_YEARS="All of the years"
+from config import (
+    AVG_SALES,
+    BEST_PERFORMANCE,
+    CLEAN_DATA,
+    DB_MUTABLE,
+    DB_ORIGINAL,
+    DB_PATH,
+    ERROR_TYPES,
+    LOAD_YEARS,
+    MAX_SALE,
+    MIN_SALE,
+    MODE_CLIENT,
+    MODE_GENERATOR,
+    MODE_TOP,
+    MUTABLE_DB_PATH,
+    PRDUCT_INSIGHTS,
+    RAW_DATA,
+    TOTAL_SALES,
+    WORST_PERFORMANCE,
+)
+from src.db import get_string_of_years_to_filter, set_db_path
+from src.generator import (
+    ensure_mutable_db,
+    generate_customers,
+    generate_orders,
+    generate_products,
+    get_errors_log,
+    get_errors_per_year,
+    get_runs_log,
+    get_tables_counts,
+)
+from src.transform import get_concated_categories_df
+from src.queries import (
+    get_client_categories_dict,
+    get_client_data_sales_across_years,
+    get_clients_from_db,
+    get_specyfic_client_data,
+    get_top_performance_countries,
+    get_top_perfromance_categories,
+    get_top_perfromance_customers,
+    get_top_perfromance_moths,
+    get_top_perfromance_products,
+    get_years_filter_from_data,
+)
+from src.metrics import get_category_sets_raw_vs_clean
+from src.charts import (
+    display_accuracy_categories_raw_vs_clean,
+    display_accuracy_raw_vs_clean,
+    display_accuracy_values_raw_vs_clean,
+    display_charts_monthly_sales_per_customer,
+    display_errors_per_year_charts,
+    display_plots_monthly_sales_categories_per_customer,
+    display_plots_sales_years_per_customer,
+    get_description_text_top_mode,
+    leaderboard_html_inline,
+)
 
 
 #### SESSION STATES
@@ -58,1272 +88,9 @@ if "client_tab" not in st.session_state:
 if "data_version" not in st.session_state:
     st.session_state["data_version"]=""
 
+if "db_version" not in st.session_state:
+    st.session_state["db_version"]=DB_ORIGINAL
 
-#### FUNCTIONS
-
-# Functions to connect and get df from sql data
-def get_df_from_db(query):
-    
-    with sqlite3.connect(DB_PATH) as conn:
-
-        cursor=conn.execute(query)
-        
-        data=cursor.fetchall()
-
-    columns=[description[0] for description in cursor.description]
-
-    # Creating df from data extract with query
-    df=pd.DataFrame(data, columns=columns)
-
-    return df
-
-### Functions to extracting data with sql queries
-
-# Function to get available years in data
-def get_years_filter_from_data(data_version):
-
-    if data_version==RAW_DATA:
-        order_year=""
-    else:
-        order_year="Having OrderYear is not null"
-
-    query=f'''
-
-        SELECT 
-            strftime('%Y', OrderDate) AS OrderYear
-        FROM Orders
-        Group by OrderYear
-        {order_year};
-    '''
-
-    # Conecting to db
-    data=get_df_from_db(query)
-
-    available_years=[year for year in data["OrderYear"]]
-
-    return available_years
-
-
-def get_string_of_years_to_filter(years):
-
-    conditions=""
-    for year in years:
-        if year is None:
-            conditions+="None"
-        else:
-            conditions+=f"{year}"
-        if year!=years[-1]:
-            conditions+=","
-
-
-    return f'({conditions})'
-
-def get_string_of_years_to_filter_v2(years):
-
-    none_exist = any(year is None for year in years)
-    filtered_years = [str(year) for year in years if year is not None]
-    conditions = ",".join(filtered_years)
-
-    return f"({conditions})", none_exist
-
-# Function to get years filters to sql query
-def get_years_filter_to_query_sql(years):
-
-    year=get_string_of_years_to_filter(years)
-
-    year_group=f", OrderYear"
-    year_having=f" AND TotalSales is not null AND OrderYear in {year} AND OrderYear is not null"
-
-    return year_group, year_having
-
-# Function to get raw years to filter
-def get_years_filter_to_query_sql_raw(years):
-
-    none_year=""
-    year, none_exist=get_string_of_years_to_filter_v2(years)
-
-    if none_exist==True:
-        none_year=" OR OrderYear is Null"
-
-    year_group=f", OrderYear"
-    # Brackets so OR does not take rows of other customers
-    year_having=f" AND (OrderYear in {year}{none_year})"
-
-    return year_group, year_having
-
-# Function to get years filters to sql query
-def get_years_filter_to_query_sql_v2(years):
-
-    year=get_string_of_years_to_filter(years)
-
-    year_group=f", OrderYear"
-    year_having=f" Having TotalSales is not null AND round(strftime('%Y', o.OrderDate)) in {year} AND round(strftime('%Y', o.OrderDate)) is not null"
-
-    return year_group, year_having
-
-# Function to get raw years to filter
-def get_years_filter_to_query_sql_v2_raw(years):
-
-    none_year=""
-    year, none_exist=get_string_of_years_to_filter_v2(years)
-
-    if none_exist==True:
-        none_year="OR round(strftime('%Y', o.OrderDate)) is Null"
-
-    year_group=f", OrderYear"
-    year_having=f" Having round(strftime('%Y', o.OrderDate)) in {year} {none_year}"
-
-    return year_group, year_having
-
-# Function to get choosen metric of slaes directly to sql query
-def get_metric_sale_sql(sale):
-
-    sale_dict={
-        TOTAL_SALES:"SUM",
-        AVG_SALES:"AVG",
-        MAX_SALE:"MAX",
-        MIN_SALE:"MIN"
-    }
-
-    return sale_dict[sale]
-
-# Function to get choosen performance directly to sql query
-def get_performance_sql(performance):
-    
-    performance_dict={
-        BEST_PERFORMANCE:"desc",
-        WORST_PERFORMANCE:"asc"
-    }
-
-    return performance_dict[performance]
-
-# Function to get choosen performance to python sort
-def get_performance_python(performance):
-    performance_dict={
-        BEST_PERFORMANCE:False,
-        WORST_PERFORMANCE:True
-    }
-
-    return performance_dict[performance]
-
-    
-
-# Function to get customers performance from data
-def get_top_perfromance_customers(performance, year, sale, data_version):
-
-    #Get metric of sale
-    sale=get_metric_sale_sql(sale)
-     # Filtring per performance
-    performance=get_performance_sql(performance)
-
-    if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_v2_raw(year)
-    else:
-        year_group, year_having=get_years_filter_to_query_sql_v2(year)
-
-
-    query=f'''
-        With RankedClientsTab AS(
-            Select 
-                round(strftime('%Y', o.OrderDate)) AS OrderYear,
-                CONCAT(c.FirstName, " ",c.LastName) AS FullName,
-                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedClientsBySales
-            From customers as c
-            Inner join orders as o
-                On c.CustomerID=o.CustomerID
-            Inner join orderdetails as od
-                On od.OrderID=o.OrderID
-            Group by FullName
-            {year_having}
-        )
-
-        Select 
-            FullName,
-            TotalSales,
-            RankedClientsBySales
-        From RankedClientsTab
-        Where RankedClientsBySales<=10;
-    '''
-    # Conecting to db
-    df_customers_top=get_df_from_db(query)
-    return df_customers_top
-
-# Function to get products performance from data
-def get_top_perfromance_products(performance, year, sale,data_version):
-
-    #Get metric of sale
-    sale=get_metric_sale_sql(sale)
-    # Filtring per performance
-    performance=get_performance_sql(performance)
-
-    if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_v2_raw(year)
-    else:
-        year_group, year_having=get_years_filter_to_query_sql_v2(year)
-
-    query=f'''
-        With RankedProductsTab AS(
-            Select 
-                p.ProductName,
-                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedProductsBySales
-            From products as p
-            Inner join orderdetails as od
-                On od.ProductID=p.ProductID
-            Inner join orders as o
-                On o.OrderID=od.OrderID
-            Group by p.ProductName
-            {year_having}
-        )
-
-        Select 
-            ProductName,
-            TotalSales,
-            RankedProductsBySales
-        From RankedProductsTab
-        Where RankedProductsBySales<=10;
-    '''
-
-    
-    # Converting data to df
-    df_products_top=get_df_from_db(query)
-    return df_products_top
-
-# Function to get categories performance from data
-def get_top_perfromance_categories(performance, year, sale, data_version):
-
-    #Get metric of sale
-    sale=get_metric_sale_sql(sale)
-
-    # Get Filter of performance
-    performance=get_performance_sql(performance)
-
-    if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_v2_raw(year)
-        categories_to_query="p.Category AS Category_Fixed,"
-    else:
-        year_group, year_having=get_years_filter_to_query_sql_v2(year)
-        categories_to_query='''
-        Case 
-            When replace(lower(p.Category), " ", "") = "electronics" Then "Electronics"
-            When replace(lower(p.Category)," ","")="audio" Then "Audio"
-            When replace(lower(p.Category), " ","")="photo" Then "Photo"
-            When replace(lower(p.Category), " ","")="tablets" Then "Tablets"
-            When replace(lower(p.Category), " ","")="wearables" Then "Wearables"
-        END AS Category_Fixed,
-        '''
-    
-    query=f'''
-        With RankedCategoryTab AS(
-            Select 
-                {categories_to_query}
-                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedCategorysBySales
-            From products as p
-            Inner join orderdetails as od
-                On od.ProductID=p.ProductID
-            Inner join orders as o
-                On o.OrderID=od.OrderID
-            Group by Category_Fixed
-            {year_having}
-        )
-
-        Select 
-            Category_Fixed,
-            TotalSales,
-            RankedCategorysBySales
-        From RankedCategoryTab
-        Where RankedCategorysBySales<=10;   
-    '''
-
-    df_categories_top=get_df_from_db(query)
-    return df_categories_top
-
-
-def get_top_perfromance_moths(performance, year, sale, data_version):
-
-    sale=get_metric_sale_sql(sale)
-     # Filtring per performance
-    performance=get_performance_sql(performance)
-
-    if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_v2_raw(year)
-    else:
-        year_group, year_having=get_years_filter_to_query_sql_v2(year)
-
-    query=f'''
-        With RankedMonthTab AS(
-            Select 
-                round(strftime('%m',OrderDate),0) AS Month,
-                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedMonthsBySales
-            From products as p
-            Inner join orderdetails as od
-                On od.ProductID=p.ProductID
-            Inner join orders as o
-                On o.OrderID=od.OrderID
-            Group by Month
-            {year_having}
-        )
-
-        Select 
-            Month,
-            TotalSales,
-            RankedMonthsBySales
-        From RankedMonthTab
-        Where RankedMonthsBySales<=10;
-    '''
-
-    # Conecting to db
-    df_months_top=get_df_from_db(query)
-
-    if data_version==CLEAN_DATA:
-        df_months_top["Month_Maped"]=df_months_top["Month"].apply(get_map_month)
-    else:
-        df_months_top=df_months_top.rename(columns={"Month":"Month_Maped"})
-    
-    return df_months_top
-
-
-# Description of action of the leaderboard
-def get_description_text_top_mode(performance, tab, type_of_sales, years):
-    
-    text=f"The LEADERBOARD below is showing you {performance}  *{tab}* in **{type_of_sales}** in **{years}**"
-
-    return text
-
-# Get Clients from db
-def get_clients_from_db():
-    query='''
-    Select 
-        Concat(FirstName," ",LastName) AS Name
-    From Customers
-    Group by Name
-    Order by Name;
-    ''' 
-
-    clients_df=get_df_from_db(query)
-    return clients_df
-
-# Get info about client sales across the years
-def get_client_data_sales_across_years(year, customer,data_version ):
-
-    if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_raw(year)
-    else:
-        year_group, year_having=get_years_filter_to_query_sql(year)
-
-    country=""
-
-    query=f'''
-
-        Select
-            Concat(c.FirstName, " ", c.LastName) AS Customer,
-            round(strftime('%Y', o.OrderDate)) AS OrderYear,
-            SUM(od.UnitPrice * od.Quantity) AS TotalSales
-        From customers as c
-        Inner join orders as o
-            On c.CustomerID=o.CustomerID
-        inner join orderdetails as od
-            On O.OrderID=od.OrderID
-        Group by Customer, OrderYear
-        Having Customer="{customer}" {year_having}
-        
-    '''
-    #- having_year -
-    # Conecting to db
-    df_customer_spec=get_df_from_db(query)
-
-    return df_customer_spec
-
-# Get info about client sales across the years
-def get_client_data_sahre_of_sale_across_years(year, customer):
-
-    year_group, year_having=get_years_filter_to_query_sql(year)
-    country=""
-
-    query=f'''
-        With GrupedSalesCustomerYears AS(
-        SELECT
-            Concat(c.FirstName, " ", c.LastName) AS Customer,
-            round(strftime('%Y', o.OrderDate)) AS OrderYear,
-            SUM(od.UnitPrice * od.Quantity) AS TotalSales
-        From customers as c
-        Inner join orders as o
-            On c.CustomerID=o.CustomerID
-        inner join orderdetails as od
-            On O.OrderID=od.OrderID
-        Group by Customer,OrderYear
-        Having TotalSales is not null AND Concat(c.FirstName, " ", c.LastName)="{customer}" {year_having}
-        ),
-
-        GruopedSalesYears AS(
-            Select
-                round(strftime('%Y', o.OrderDate)) AS OrderYear,
-                SUM(od.UnitPrice * od.Quantity) AS TotalSales
-            From customers as c
-            Inner join orders as o
-                On c.CustomerID=o.CustomerID
-            inner join orderdetails as od
-                On O.OrderID=od.OrderID
-            Group by OrderYear
-            Having TotalSales is not null {year_having}
-        )
-
-        Select 
-        gscy.Customer,
-        gscy.OrderYear,
-        (round((gscy.TotalSales/gsy.TotalSales),2) * 100 ) AS ShareOfSale
-        From GrupedSalesCustomerYears as gscy
-        Inner join GruopedSalesYears as gsy
-            On gscy.OrderYear=gsy.OrderYear
-
-    '''
-
-    df_customer_spec=get_df_from_db(query)
-
-    # Cleaning data
-    return df_customer_spec
-
-# Get info about client moyhly sale
-def get_specyfic_client_data(year, customer,data_version):
-
-    if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_raw(year)
-    else:
-        year_group, year_having=get_years_filter_to_query_sql(year)
-
-    query=f'''
-
-        Select
-            o.OrderID as OrderID,
-            round(strftime('%Y', o.OrderDate)) AS OrderYear,
-            round(strftime('%m',OrderDate),0) AS Month,
-            SUM(od.UnitPrice * od.Quantity) AS TotalSales,
-            AVG(od.UnitPrice * od.Quantity) AS AvgSales
-        From customers as c
-        Inner join orders as o
-            On c.CustomerID=o.CustomerID
-        inner join orderdetails as od
-            On O.OrderID=od.OrderID
-        Group by o.OrderID,OrderYear, Month
-        Having Concat(c.FirstName, " ", c.LastName)="{customer}" {year_having}
-    '''
-
-    # Conecting to db
-    df_customer_spec=get_df_from_db(query)
-
-    # Cleaning data
-    df_customer_spec = df_customer_spec.dropna(subset=["Month"])
-    df_customer_spec["Month_normal"]=df_customer_spec["Month"].apply(get_map_month)
-    df_customer_spec=df_customer_spec.sort_values("Month", ascending=True)
-
-    return df_customer_spec
-
-def get_categories_of_the_client(year, customer, data_version):
-
-    if data_version==RAW_DATA:
-        categories_to_query="p.Category AS Category_Fixed,"
-    else:
-        categories_to_query='''
-        Case 
-            When replace(lower(p.Category), " ", "") = "electronics" Then "Electronics"
-            When replace(lower(p.Category)," ","")="audio" Then "Audio"
-            When replace(lower(p.Category), " ","")="photo" Then "Photo"
-            When replace(lower(p.Category), " ","")="tablets" Then "Tablets"
-            When replace(lower(p.Category), " ","")="wearables" Then "Wearables"
-        END AS Category_Fixed,
-        '''
-
-    query=f'''
-
-        Select {categories_to_query}
-        From customers as c
-        Inner join orders as o
-            On c.CustomerID=o.CustomerID
-        inner join orderdetails as od
-            On O.OrderID=od.OrderID
-        inner join products as p
-            On p.ProductID=od.ProductID
-        Where Concat(c.FirstName, " ", c.LastName)="{customer}";
-    '''
-
-    # Conecting to db
-    df_category_of_cleint=get_df_from_db(query)
-    return df_category_of_cleint
-
-
-# Geting specyfic data from every tab that is needed
-def get_specyfic_data_from_any_tab(select,where,from_var):
-
-    string_select_query=select
-    
-    string_where_query=where
-    if string_where_query==0:
-        string_where_query=""
-    else:
-        string_where_query=f"Where {string_where_query}"
-
-    with sqlite3.connect("db_shop.db") as conn:
-        query=f''' 
-        
-
-        Select
-            {string_select_query}
-        From {from_var}
-        {string_where_query}
-        '''
-
-    cursor=conn.execute(query)
-
-    data=cursor.fetchall()
-
-    columns=[description[0] for description in cursor.description]
-
-    df=pd.DataFrame(data, columns=columns)
-
-    return df
-
-### Function to transform data with python
-
-# Maping Months
-def get_map_month(month):
-    month_dict={
-        1:"January",
-        2:"Feburary",
-        3:"March",
-        4:"April",
-        5:"May",
-        6:"June",
-        7:"July",
-        8:"August",
-        9:"September",
-        10:"October",
-        11:"November",
-        12:"December"
-    }
-
-    if month in month_dict:
-        month=month_dict[month]
-    else: 
-        month="Unknown"
-    return month
-
-# Function to get mapped month
-def get_mapped_month_df(df):
-
-    df["Month_mapped"]=df["Month"].apply(get_map_month)
-
-    return df
-
-# Function to get mapped countries column
-def get_mapped_countries_df(df, data_version):
-
-    countries_dict={
-        "polska":"Poland", "pl":"Poland", "poland":"Poland", "polonia":"Poland",
-        "usa":"Usa", "unitedstates":"Usa",
-        "niemcy":"Germany","germany":"Germany", "de":"Germany",
-        "france":"France","fr":"France","francja":"France",
-        "spain":"Spain", "espana":"Spain", "esp":"Spain", "hiszpania":"Spain","españa":"Spain",
-        "china":"China", "Chiny":"China"
-        }
-    
-    if data_version==RAW_DATA:
-        df=df.rename(columns={"Country":"Country_mapped"})
-    else:
-        df["Country_mapped"]=df["Country"].astype(str).str.strip().str.lower().map(countries_dict)
-
-    
-
-    return df
-
-def get_mapped_categories_df(df):
-    dict_categories={
-        "electronics":"Electronics",
-        "tablets":"Tablets",
-        "audio":"Audio",
-        "photo":"Photo",
-        "wearables":"Wearables"
-    }
-
-    df["Category_mapped"]=df["Category"].astype(str).str.strip().str.lower().map(dict_categories)
-
-    return df
-
-
-# Building string select
-def build_select(select_col):
-    if select_col==0:
-        return 0
-    conditions=[]
-
-    # creating select string sql injection
-    for col in select_col:
-        if col==0:
-            continue
-        conditions.append(f"{col}")
-        
-    # returning select string sql injection
-    return " , ".join(conditions)
-
-# building string where
-def build_where(where_col: dict):
-    conditions = []
-    for col, val in where_col.items():
-
-        # Checking if value is list for example 2022,2023 year
-        if isinstance(val, list):
-            string_transformed=f"{col} in"
-            string_transformed+=get_string_of_years_to_filter(val)
-            return string_transformed
-        
-        if val in [0, ALL_YEARS]:
-            continue  # are not paying attention on 0 values
-        if isinstance(val, str):
-            conditions.append(f"{col}='{val}'")
-        elif isinstance(val, int):
-            conditions.append(f"{col}={val}")
-        else:
-            string_transformed=f"{col} in"
-            string_transformed+=get_string_of_years_to_filter(val)
-            return conditions.append(string_transformed)
-        
-    if not conditions:  # if every of the value is 0
-        return 0   # retrun 0 if every value is 0
-
-    return " AND ".join(conditions)
-
-# Function to cleaning data from nulls and fake nulls
-def cleaning_data(df, col):
-
-    return df[
-        (df[col].notna()) & (df[col].astype(str).str.strip() != "") &
-        (df[col].astype(str).str.strip().str.lower() != "null") & 
-        (df[col].astype(str).str.strip().str.lower() != "none")
-    ]
-
-# Geting cleaned df
-def get_cleaned_data(df):
-
-    for col in df.columns:
-        df=cleaning_data(df, col)
-
-    return df
-
-# Function to get dict of querries to extract data from db
-def creating_dict_to_sql_query(list_column_of_tabs, filters_list_dict):
-
-    # get secelct string for each tab
-    customers_select=build_select(list_column_of_tabs[0])
-    orders_select=build_select(list_column_of_tabs[1])
-    orderdetails_select=build_select(list_column_of_tabs[2])
-    products_select=build_select(list_column_of_tabs[3])
-
-    # get where string dor each tab
-    customers_where=build_where(filters_list_dict[0])
-    orders_where=build_where(filters_list_dict[1])
-    orderdetails_where=build_where(filters_list_dict[2])
-    products_where=build_where(filters_list_dict[3])
-
-    # Dictionary of selects and where to each tab
-    dict_of_cols_tabs={
-        
-        "customers":{
-            "select":customers_select,
-            "where":customers_where
-        },
-        "orders":{
-            "select":orders_select,
-            "where":orders_where
-        },
-        "orderdetails":{
-            "select":orderdetails_select,
-            "where":orderdetails_where
-        },
-        "products":{
-            "select":products_select,
-            "where":products_where
-        },
-    }
-
-    return dict_of_cols_tabs
-    
-# Get all tabs that are nedeed to analyse
-def get_all_data_from_tables(dict_of_cols_tbas):
-
-    # Taking columns from specyfic tab to create sql select query or 0 if not using
-    df_customers_ret=dict_of_cols_tbas["customers"]["select"]
-    df_orders_ret=dict_of_cols_tbas["orders"]["select"]
-    df_orderdetails_ret=dict_of_cols_tbas["orderdetails"]["select"]
-    df_products_ret=dict_of_cols_tbas["products"]["select"]
-
-    customers_where=dict_of_cols_tbas["customers"]["where"]
-    orders_where=dict_of_cols_tbas["orders"]["where"]
-    orderdetails_where=dict_of_cols_tbas["orderdetails"]["where"]
-    products_where=dict_of_cols_tbas["products"]["where"]
-
-    # variables to take name of the columns to from in select query
-    cust_from_var="Customers"
-    or_from_var="Orders"
-    od_from_var="Orderdetails"
-    pr_from_var="Products"
-
-    # 0 if we dont need table to extract data from
-    if df_customers_ret !=0:
-
-        df_customers=get_specyfic_data_from_any_tab(df_customers_ret,customers_where,cust_from_var)
-        df_customers_ret=get_cleaned_data(df_customers)
-
-    if df_orders_ret !=0:
-
-        df_orders=get_specyfic_data_from_any_tab(df_orders_ret,orders_where,or_from_var)
-        df_orders_ret=get_cleaned_data(df_orders)
-
-    if df_orderdetails_ret !=0:
-
-        df_orderdetails=get_specyfic_data_from_any_tab(df_orderdetails_ret,orderdetails_where,od_from_var)
-        df_orderdetails_ret=get_cleaned_data(df_orderdetails)
-
-    if df_products_ret !=0:
-
-        df_products=get_specyfic_data_from_any_tab(df_products_ret,products_where,pr_from_var)
-        df_products_ret=get_cleaned_data(df_products)
-
-    # dict of data from tables to return variables
-    tabs_dict={
-        "customers":df_customers_ret,
-        "orders":df_orders_ret,
-        "orderdetails":df_orderdetails_ret,
-        "products":df_products_ret
-    }
-    
-    return tabs_dict
-
-# get list of columns from customers table
-def get_customers_select(select_list):
-    return select_list
-
-# get list of columns from orders table
-def get_orders_select(select_list):
-    return select_list
-
-# get list of columns from orderdetails table
-def get_orderdetails_select(select_list):
-    return select_list
-
-# get list of columns from products table
-def get_products_select(select_list):
-    return select_list
-
-# get dict of columns from customer table
-def get_customers_where(customer=0,country=0):
-
-    customers_filter={
-        "Customer":customer,
-        "Country":country
-    }
-    return customers_filter
-
-# get dict of columns from orders table
-def get_orders_where(year=0,month=0):
-
-    orders_filters={
-        "Year":year,
-        "Month":month
-    }
-    return orders_filters
-
-# get dict of columns from orderdetails table
-def get_orderdetails_where(quantity=0,unitprice=0):
-    orderdetails_filters={
-        "Quantity":quantity,
-        "UnitPrice":unitprice
-    }
-
-    return orderdetails_filters
-
-# get dict of columns from products table
-def get_products_where(product=0,category=0):
-    products_filters={
-        "Product":product,
-        "Category":category
-    }
-
-    return products_filters
-
-
-# get Top performance countries
-def get_merged_top_performance_country(dict_of_tables, performance, data_version):
-
-    performance=get_performance_python(performance)
-    # c-> customers
-    # o-> orders
-    # od-> orderdetails
-    # p -> products
-
-    # Geting data from every tab nedeed
-    df_c_cl=dict_of_tables["customers"]
-    df_o_cl=dict_of_tables["orders"]
-    df_od_cl=dict_of_tables["orderdetails"]
-    
-    try:
-        df_c_cl=get_mapped_countries_df(df_c_cl,data_version)
-    except Exception as ex:
-        st.error(f"No key of category found, error: {ex}")
-        
-    df_c_o=df_o_cl.merge(df_c_cl, how="left",on="CustomerID")
-    df_c_o_od=df_c_o.merge(df_od_cl, how="inner", on="OrderID")
-    df_c_o_od["Total_Sale"]=df_c_o_od["Quantity"]*df_c_o_od["UnitPrice"]
-    df_final_merged_ranked=df_c_o_od[["Country_mapped","Total_Sale" ]]
-    df_grouped_country_sales=(df_final_merged_ranked.groupby("Country_mapped").sum()
-                          ).reset_index()
-    df_grouped_country_sales=df_grouped_country_sales.sort_values("Total_Sale", ascending=performance)
-    df_grouped_country_sales["RankedSales"]=df_grouped_country_sales["Total_Sale"].rank(ascending=performance)
-
-    return df_grouped_country_sales
-
-
-
-# Function to get df of merged categories of client sales
-def get_merged_categories_sales_of_client(dict_of_tables, data_version):
-    # c-> customers
-    # o-> orders
-    # od-> orderdetails
-    # p -> products
-
-    # Geting data from every tab nedeed
-    df_c_cl=dict_of_tables["customers"]
-    df_o_cl=dict_of_tables["orders"]
-    df_od_cl=dict_of_tables["orderdetails"]
-    df_p_cl=dict_of_tables["products"]
-
-    if data_version==RAW_DATA:
-        df_o_cl["Month_mapped"]=df_o_cl["Month"]
-        df_p_cl=df_p_cl.rename(columns={"Category":"Category_mapped"})
-    else:
-        try:
-            df_o_cl=get_mapped_month_df(df_o_cl)
-        except Exception as ex:
-            st.error(f"No key of month found, error: {ex}")
-                     
-        try:
-            df_p_cl=get_mapped_categories_df(df_p_cl)
-        except Exception as ex:
-            st.error(f"No key of category found, error: {ex}")
-
-    df_c_o=df_o_cl.merge(df_c_cl, how="inner",on="CustomerID")
-    df_c_o_od=df_c_o.merge(df_od_cl, how="inner", on="OrderID")
-    df_c_o_od_p=df_c_o_od.merge(df_p_cl, how="inner", on="ProductID")
-    df_c_o_od_p["Total_Sale"]=df_c_o_od_p["Quantity"]*df_c_o_od_p["UnitPrice"]
-
-    # get df with avreage and sum of monthly Total sales of categories
-    df_grouped_categories_sales=(df_c_o_od_p.groupby(["Category_mapped","Month_mapped","Month","Year"]).agg(
-
-        Avg_Sale=("Total_Sale","mean"),
-        Total_Sale_Category=("Total_Sale","sum")
-
-    )).reset_index()
-
-    return df_grouped_categories_sales
-
-# Fucntion to get dictionary categories 
-def get_dict_of_df_categories(df,data_version):
-
-    df=get_merged_categories_sales_of_client(df,data_version)
-    dict_df={}
-    existing_keys=[]
-
-    for value in df["Category_mapped"]:
-        if value in existing_keys:
-            continue
-        existing_keys.append(value)
-        df_get=df[df["Category_mapped"]==value]
-        df_get=df_get.sort_values("Month", ascending=True)
-        dict_df[value]=df_get
-
-    return dict_df
-
-# Function to get top countries df (data from every tab merged and ranked)
-def get_top_performance_countries(performance, year, data_version):
-
-    year_country=[year_country for year_country in year if  year_country is not None]
-
-    # selected columns from tabs that are neded
-    customers_select=get_customers_select(["CustomerID","Country"])
-    orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","round(strftime('%Y', OrderDate)) AS Year"])
-    orderdetails_select=get_orderdetails_select(["OrderID","Quantity","UnitPrice"])
-    products_select=get_products_select(0)
-
-    # selected columns from tabs to build where that is nedeed
-    customers_filters=get_customers_where(customer=0,country=0)
-    orders_filters=get_orders_where(year=year_country,month=0)
-    orderdetails_filters=get_orderdetails_where(quantity=0,unitprice=0)
-    products_filters=get_products_where(product=0,category=0)
-
-    filters=[customers_filters,orders_filters,orderdetails_filters,products_filters]
-
-    list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
-
-    dict_select_where=creating_dict_to_sql_query(list_column_of_tabs,filters)
-
-    # Dictionary of dataframes with specyfic tab data
-    dict_df_of_tabs=get_all_data_from_tables(dict_select_where)
-
-    return get_merged_top_performance_country(dict_df_of_tabs,performance,data_version)
-
-# Function to get dictionary of client category sales (data from every tab merged)
-def get_client_categories_dict(client, year, data_version):
-
-    year_categories=[year_categories for year_categories in year if year_categories is not None]
-    # get column to select from each tab
-    customers_select=get_customers_select(["CustomerID","Concat(FirstName,' ',LastName) AS Customer"])
-    orders_select=get_orders_select(["CustomerID","OrderDate","OrderID","round(strftime('%Y', OrderDate)) AS Year","round(strftime('%m', OrderDate),0) AS Month"])
-    orderdetails_select=get_orderdetails_select(["OrderID","ProductID","Quantity","UnitPrice"])
-    products_select=get_products_select(["ProductID","Category"])
-
-    # get column with value to build where
-    customers_filters=get_customers_where(customer=client,country=0)
-    orders_filters=get_orders_where(year=year_categories,month=0)
-    orderdetails_filters=get_orderdetails_where(quantity=0,unitprice=0)
-    products_filters=get_products_where(product=0,category=0)
-
-    filters=[customers_filters,orders_filters,orderdetails_filters,products_filters]
-
-    list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
-
-    dict_select_where=creating_dict_to_sql_query(list_column_of_tabs,filters)
-
-    # Dictionary of dataframes with specyfic tab data
-    dict_df_of_tabs=get_all_data_from_tables(dict_select_where)
-
-    # Get dictionary of every category that client bought product from
-    return get_dict_of_df_categories(dict_df_of_tabs, data_version)
-
-# Function to get values that monthly chart is showing (barplot shows mean per month and year)
-def get_monthly_chart_values(df):
-
-    return df.groupby(["OrderYear","Month"], dropna=False)[["TotalSales","AvgSales"]].mean().reset_index()
-
-# Function to get one df from dictionary of categories
-def get_concated_categories_df(dict_df):
-
-    if not dict_df:
-        return pd.DataFrame(columns=["Category_mapped","Year","Month","Total_Sale_Category"])
-
-    return pd.concat(dict_df.values(), ignore_index=True)
-
-# Function to compare 1:1 (position by position) clean and raw leaderboard
-def get_accuracy_raw_vs_clean(df_clean, df_raw, clean_col, raw_col, rank_col):
-
-    # Same order as in leaderboard
-    clean_values=df_clean.sort_values(rank_col, kind="stable")[clean_col].tolist()
-    raw_values=df_raw.sort_values(rank_col, kind="stable")[raw_col].tolist()
-
-    # Longer list is the base, missing positions count as mismatch
-    total=max(len(clean_values), len(raw_values))
-    clean_values+=[None]*(total-len(clean_values))
-    raw_values+=[None]*(total-len(raw_values))
-
-    matches=[clean==raw and clean is not None for clean, raw in zip(clean_values, raw_values)]
-
-    df_comparison=pd.DataFrame({
-        "Clean":clean_values,
-        "Raw":raw_values,
-        "Match":["✅" if match else "❌" for match in matches]
-    })
-    df_comparison.index=df_comparison.index+1
-
-    return sum(matches), total, df_comparison
-
-# Function to compare 1:1 values of clean and raw data for the same keys (e.g. year, month)
-def get_accuracy_values_raw_vs_clean(df_clean, df_raw, key_cols, value_col):
-
-    df_comparison=df_clean[key_cols+[value_col]].merge(
-        df_raw[key_cols+[value_col]],
-        how="outer",
-        on=key_cols,
-        suffixes=("_clean","_raw")
-    )
-    df_comparison=df_comparison.rename(columns={f"{value_col}_clean":"Clean", f"{value_col}_raw":"Raw"})
-
-    # Key missing in one of the versions counts as mismatch (NaN != NaN)
-    matches=df_comparison["Clean"].round(2)==df_comparison["Raw"].round(2)
-    df_comparison["Match"]=["✅" if match else "❌" for match in matches]
-    df_comparison.index=df_comparison.index+1
-
-    return int(matches.sum()), len(df_comparison), df_comparison
-
-# Function to get name of the set, so "electronics" and "Electronics" are in the same set
-def get_category_set_key(category):
-
-    return str(category).replace(" ","").lower()
-
-# Function to split clean and raw df into sets per category
-def get_category_sets_raw_vs_clean(df_clean, df_raw):
-
-    df_clean=df_clean.assign(Set=df_clean["Category_mapped"].apply(get_category_set_key))
-    df_raw=df_raw.assign(Set=df_raw["Category_mapped"].apply(get_category_set_key))
-
-    # Key: set key (e.g. "electronics"), value: (set name, clean df, raw df)
-    dict_sets={}
-    for set_key in sorted(set(df_clean["Set"]) | set(df_raw["Set"])):
-
-        df_set_clean=df_clean[df_clean["Set"]==set_key]
-        df_set_raw=df_raw[df_raw["Set"]==set_key]
-
-        # Name of the set from clean data if exists
-        if len(df_set_clean)>0:
-            set_name=df_set_clean["Category_mapped"].iloc[0]
-        else:
-            set_name=df_set_raw["Category_mapped"].iloc[0]
-
-        dict_sets[set_key]=(set_name, df_set_clean, df_set_raw)
-
-    return dict_sets
-
-### FUNCTIONS to visualise data
-
-# Display info bar with accuracy and comparison table
-def display_accuracy_info(matches, total, df_comparison, what="positions", show_table=True):
-
-    if total==0:
-        st.info("🎯 Accuracy raw vs clean: no data to compare")
-        return
-
-    accuracy=matches/total*100
-    st.info(f"🎯 Accuracy raw vs clean: **{matches}/{total}** {what} match (**{accuracy:.2f}%**)")
-
-    if show_table:
-        with st.expander("Show comparison clean vs raw"):
-            st.dataframe(df_comparison, use_container_width=True)
-
-# Display total accuracy of client categories (every category together)
-def display_accuracy_categories_raw_vs_clean(df_clean, df_raw):
-
-    matches, total, df_comparison=get_accuracy_values_raw_vs_clean(df_clean, df_raw, ["Category_mapped","Year","Month"], "Total_Sale_Category")
-    display_accuracy_info(matches, total, df_comparison, "values", show_table=False)
-
-# Display accuracy of one category set
-def display_accuracy_category_set(df_set_clean, df_set_raw):
-
-    display_accuracy_values_raw_vs_clean(df_set_clean, df_set_raw, ["Category_mapped","Year","Month"], "Total_Sale_Category")
-
-# Display accuracy of raw data compared to clean data
-def display_accuracy_raw_vs_clean(df_clean, df_raw, clean_col, raw_col, rank_col):
-
-    matches, total, df_comparison=get_accuracy_raw_vs_clean(df_clean, df_raw, clean_col, raw_col, rank_col)
-    display_accuracy_info(matches, total, df_comparison)
-
-# Display accuracy of raw values compared to clean values
-def display_accuracy_values_raw_vs_clean(df_clean, df_raw, key_cols, value_col):
-
-    matches, total, df_comparison=get_accuracy_values_raw_vs_clean(df_clean, df_raw, key_cols, value_col)
-    display_accuracy_info(matches, total, df_comparison, "values")
-
-# Visualise leaderboard
-def leaderboard_html_inline(df, name_col, score_col, rank_col, performance):
-    df = df.sort_values(rank_col, ascending=True).reset_index(drop=True)
-    items = []
-    for _, row in df.iterrows():
-        rank = int(row[rank_col])
-        name = row[name_col]
-        score = row[score_col]
-
-        if performance==BEST_PERFORMANCE:
-            if rank == 1:
-                badge, bg = "🥇", "linear-gradient(180deg, #ffd966, #f4c430)"
-            elif rank == 2:
-                badge, bg = "🥈", "linear-gradient(180deg, #e6e6e6, #cfcfcf)"
-            elif rank == 3:
-                badge, bg = "🥉", "linear-gradient(180deg, #e7d7c1, #d7b89a)"
-            else:
-                badge, bg = str(rank), "rgba(220,220,220,0.35)"
-        else:
-            if rank == 1:
-                badge, bg = "🚫", "linear-gradient(180deg, #ff4d4d, #b30000)"
-            elif rank == 2:
-                badge, bg = "📉", "linear-gradient(180deg, #ffa500, #cc7000)"
-            elif rank == 3:
-                badge, bg = "🔥", "linear-gradient(180deg, #f5d76e, #c9a300)"
-            else:
-                badge, bg = str(rank), "rgba(220,220,220,0.35)"
-
-        items.append(f"""
-        <div style="
-            display:flex; align-items:center; justify-content:space-between;
-            padding:12px 16px; margin-bottom:10px; border-radius:10px;
-            background:{bg}; box-shadow:0 1px 3px rgba(0,0,0,0.1);
-            font-family:Segoe UI, Roboto, Arial, sans-serif;">
-            <div style="font-weight:700; font-size:20px; min-width:50px; text-align:center;">{badge}</div>
-            <div style="flex:1; display:flex; justify-content:space-between; align-items:center; margin-left:12px;">
-                <div style="font-weight:600; font-size:16px;">{name}</div>
-                <div style="font-weight:700; font-size:18px;">{score:,.0f}$</div>
-            </div>
-        </div>
-        """)
-        
-    return "\n".join(items)
-
-# Function to Display total sales of customer across the years from each category
-def display_plots_sales_years_per_customer(df, type_of_sales,customer, year):
-
-    sales_dict={
-        "TotalSales":"Total Sale",
-        AVG_SALES:"Average Sale",
-        MAX_SALE:"Maximal Sale",
-        MIN_SALE:"Minimal Sale"
-
-    }
-    # sns.set_style("whitegrid")
-
-    # Reset color cycle to avoid modulo by zero
-    plt.rcParams['axes.prop_cycle'] = plt.cycler('color', ['b', 'g', 'r', 'c', 'm', 'y', 'k'])
-    sns.set_palette("pastel")
-
-    # Tworzenie wykresu
-    fig, ax = plt.subplots(figsize=(8, 3))  # szerszy, niższy kontener
-
-    sns.barplot(
-        x="OrderYear",
-        y="TotalSales",
-        data=df,
-        ax=ax,
-        dodge=True,         # rozdziela słupki dla hue
-        width=0.6,  # zmniejsza szerokość słupków
-    )
-
-    st.info(f"The chart showing {sales_dict[type_of_sales]} of {customer} in {year}🔻 ")
-
-    ax.set_title(f"{sales_dict[type_of_sales]} of {customer} in {year}", fontsize=14)
-    ax.set_xlabel("Year", fontsize=10)
-    ax.set_ylabel(f"{sales_dict[type_of_sales]}", fontsize=10)
-
-    # Etykiety osi X — mniejsze i obrócone
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, fontsize=8)
-
-
-    # Zmniejszenie marginesu dolnego
-    plt.subplots_adjust(bottom=0.25)
-
-    st.pyplot(fig)
-
-# Get monthly total sales chart
-def get_monthly_sales_chart(df, type_of_sales, customer,year):
-
-    sales_desc={
-        "TotalSales":"Total Sales",
-        "AvgSales":"Anerage Sales"
-    }
-
-
-
-    # Tworzenie wykresu
-    fig, ax = plt.subplots(figsize=(8, 3))  # szerszy, niższy kontener
-
-    sns.barplot(
-        x="Month_normal",
-        y=f"{type_of_sales}",
-        hue="OrderYear",
-        data=df,
-        ax=ax,
-        dodge=True,         # rozdziela słupki dla hue
-        width=0.6,  # zmniejsza szerokość słupków
-    )
-
-    # Tytuł i etykiety osi
-    ax.set_title(f"Monthly {sales_desc[type_of_sales]} of {customer} in {year}", fontsize=14)
-    ax.set_xlabel("Month", fontsize=10)
-    ax.set_ylabel(f"{sales_desc[type_of_sales]}", fontsize=10)
-
-    # Etykiety osi X — mniejsze i obrócone
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, fontsize=8)
-
-    # Zmniejszenie marginesu dolnego
-    plt.subplots_adjust(bottom=0.25)
-
-    return fig
-
-
-# Function to Display average and total sales of customer
-def display_charts_monthly_sales_per_customer(df, customer, year, df_clean=None):
-
-    st.info(f"The chart showing monthly Sales of {customer} in {year}🔻 ")
-    # Seaborn style
-
-    # Accuracy only when raw data is compared with clean data
-    if df_clean is not None:
-        df_chart_raw=get_monthly_chart_values(df)
-        df_chart_clean=get_monthly_chart_values(df_clean)
-        display_accuracy_values_raw_vs_clean(df_chart_clean, df_chart_raw, ["OrderYear","Month"], "TotalSales")
-
-    # Get total sales chart
-    fig=get_monthly_sales_chart(df, "TotalSales",customer, year)
-
-    # Displaying in Streamlit 
-    st.pyplot(fig)
-    st.markdown("")
-
-    st.info(f"The chart showing monthly Average Sales of {customer} in {year}🔻")
-
-    if df_clean is not None:
-        display_accuracy_values_raw_vs_clean(df_chart_clean, df_chart_raw, ["OrderYear","Month"], "AvgSales")
-
-    # Get average sales 
-    fig=get_monthly_sales_chart(df,"AvgSales",customer,year)
-
-    # Displaying in Streamlit 
-    st.pyplot(fig)
-
-# Create plot of sales of the categories that customer bought product from
-def get_barplot_of_category_client_monthly_sales(df,customer,category,year):
-
-    fig, ax=plt.subplots(figsize=(5,2))
-
-    sns.barplot(
-        data=df,
-        x="Month_mapped",
-        y="Total_Sale_Category",
-        hue="Year"
-    )
-
-    ax.set_title(f"{customer}`s monthly {category} sales in {year}")
-
-    ax.set_ylabel("Total Sales")
-    ax.set_xlabel("Month")
-
-    ax.legend(title="Year", title_fontsize=12, fontsize=10, loc='upper right')
-
-    return fig
-
-# Function to Display monthly total sales of customer from each category
-def display_plots_monthly_sales_categories_per_customer(dict_df, customer, year, dict_sets=None):
-
-    # Sets already shown ("Electronics" and "electronics" charts are in the same set)
-    shown_sets=[]
-
-    for key, val in dict_df.items():
-        st.info(f"The chart showing {customer}`s monthly {key} sales in {year}🔻 ")
-        # Seaborn style
-
-        # Accuracy only when raw data is compared with clean data
-        if dict_sets is not None:
-            set_key=get_category_set_key(key)
-            set_name, df_set_clean, df_set_raw=dict_sets[set_key]
-
-            if set_key in shown_sets:
-                st.caption(f"🎯 Comparison of **{set_name}** set is shown above")
-            else:
-                shown_sets.append(set_key)
-                display_accuracy_category_set(df_set_clean, df_set_raw)
-
-        # Get total sales chart
-        fig=get_barplot_of_category_client_monthly_sales(val, customer,key,year)
-
-        # Displaying in Streamlit 
-        st.pyplot(fig)
-        st.markdown("")
- 
 
 ##
 ### MAIN
@@ -1341,7 +108,19 @@ if st.session_state["page"]=="start":
 if st.session_state["page"]=="main":
 
     st.header("Welcome to data visualisation section 📊")
-    st.session_state["mode"]=st.selectbox("Choose the mode below that you are interested in", [MODE_TOP,MODE_CLIENT, PRDUCT_INSIGHTS])
+
+    # Choosing db that app is connected to
+    with st.sidebar:
+        st.session_state["db_version"]=st.radio("🗄️ Choose the database", [DB_ORIGINAL, DB_MUTABLE])
+
+    if st.session_state["db_version"]==DB_MUTABLE:
+        # Mutable db is created as copy of original when it is used first time
+        ensure_mutable_db(DB_PATH, MUTABLE_DB_PATH)
+        set_db_path(MUTABLE_DB_PATH)
+    else:
+        set_db_path(DB_PATH)
+
+    st.session_state["mode"]=st.selectbox("Choose the mode below that you are interested in", [MODE_TOP,MODE_CLIENT, MODE_GENERATOR, PRDUCT_INSIGHTS])
     
     # Top 3 mode
     if st.session_state["mode"]==MODE_TOP:
@@ -1518,12 +297,89 @@ if st.session_state["page"]=="main":
             # display_plots_monthly_sales_categories_per_customer(dict_df,client,year)
             display_plots_monthly_sales_categories_per_customer(dict_df, client, year_to_desc, dict_sets)
 
+    # Mode generator
+    if st.session_state["mode"]==MODE_GENERATOR:
+
+        # Generator always inserts records into mutable db, original db is never changed
+        ensure_mutable_db(DB_PATH, MUTABLE_DB_PATH)
+
+        st.info("Generator inserts new records into **🧪 Mutable DB**. Part of the records is polluted with chosen errors, every error is saved in table *Data_Quality_Errors* 👇")
+
+        if st.session_state["db_version"]==DB_ORIGINAL:
+            st.warning(f"You are connected to **{DB_ORIGINAL}**. Choose **{DB_MUTABLE}** in the sidebar to analyse generated records.")
+
+        col1, col2=st.columns(2)
+        with col1:
+            n_customers=st.slider("👤 Number of customers", 1, 50, 5)
+            n_products=st.slider("📦 Number of products", 1, 30, 5)
+            n_orders=st.slider("🛒 Number of orders", 1, 200, 20)
+        with col2:
+            # Chunk of data is delivered in chosen year, dates of records are in this year
+            load_year=st.selectbox("📅 Year of data delivery", LOAD_YEARS, index=LOAD_YEARS.index(2025))
+            pollution=st.slider("☣️ Pollution level (% of polluted records)", 0, 100, 20)
+            st.markdown("**Types of inserted errors:**")
+            error_types=[error_type for error_type in ERROR_TYPES if st.checkbox(error_type, value=True)]
+
+        btn1, btn2, btn3=st.columns(3)
+        generate_clicked={
+            "customers":btn1.button("Generate customers", use_container_width=True),
+            "products":btn2.button("Generate products", use_container_width=True),
+            "orders":btn3.button("Generate orders", use_container_width=True),
+        }
+
+        generators={
+            "customers":(generate_customers, n_customers),
+            "products":(generate_products, n_products),
+            "orders":(generate_orders, n_orders),
+        }
+
+        for name, clicked in generate_clicked.items():
+            if not clicked:
+                continue
+
+            generator, n=generators[name]
+            try:
+                result=generator(MUTABLE_DB_PATH, n, pollution/100, error_types, load_year=load_year)
+                st.success(f"✅ Run {result['run_id']} ({load_year}): inserted {result['inserted']} {name}, polluted values: {result['polluted']}")
+            except ValueError as ex:
+                st.error(f"❌ {ex}")
+
+        # State of mutable db after generating
+        st.subheader("📋 State of Mutable DB")
+
+        col1, col2=st.columns(2)
+        with col1:
+            st.markdown("**Rows in tables**")
+            st.dataframe(get_tables_counts(MUTABLE_DB_PATH), hide_index=True, use_container_width=True)
+
+        df_errors=get_errors_log(MUTABLE_DB_PATH)
+        with col2:
+            st.markdown("**Inserted errors**")
+            if df_errors.empty:
+                st.caption("No errors inserted yet")
+            else:
+                df_errors_count=df_errors.groupby(["TableName","ErrorType"]).size().reset_index(name="Count")
+                st.dataframe(df_errors_count, hide_index=True, use_container_width=True)
+
+        # Errors in every year of data delivery
+        st.subheader("📈 Errors per year of data delivery")
+        df_runs=get_runs_log(MUTABLE_DB_PATH)
+        df_years=get_errors_per_year(df_runs)
+
+        display_errors_per_year_charts(df_errors, df_years)
+
+        if not df_years.empty:
+            st.dataframe(df_years, hide_index=True, use_container_width=True)
+
+        if not df_runs.empty:
+            with st.expander(f"Show log of generator runs ({len(df_runs)})"):
+                st.dataframe(df_runs, hide_index=True, use_container_width=True)
+
+        if not df_errors.empty:
+            with st.expander(f"Show log of inserted errors ({len(df_errors)})"):
+                st.dataframe(df_errors, hide_index=True, use_container_width=True)
+
     # Mode products
     if st.session_state["mode"]==PRDUCT_INSIGHTS:
             with st.sidebar:
                 st.markdown("In this section you can choose filters that will be applied to the data that you analysing 👇")
-
-    
-    
-
-
