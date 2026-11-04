@@ -3,7 +3,7 @@
 import pandas as pd
 import sqlite3
 
-from config import ALL_YEARS, DB_PATH
+from config import ALL_YEARS, CLEAN_DATA, DB_PATH, RAW_DATA
 from src.transform import get_cleaned_data
 
 
@@ -177,8 +177,17 @@ def creating_dict_to_sql_query(list_column_of_tabs, filters_list_dict):
     return dict_of_cols_tabs
 
 
+# Function to clean data only in clean version (raw data shows nulls and fake nulls)
+def get_data_for_version(df, data_version):
+
+    if data_version==RAW_DATA:
+        return df
+
+    return get_cleaned_data(df)
+
+
 # Get all tabs that are nedeed to analyse
-def get_all_data_from_tables(dict_of_cols_tbas):
+def get_all_data_from_tables(dict_of_cols_tbas, data_version=CLEAN_DATA):
 
     # Taking columns from specyfic tab to create sql select query or 0 if not using
     df_customers_ret=dict_of_cols_tbas["customers"]["select"]
@@ -201,22 +210,22 @@ def get_all_data_from_tables(dict_of_cols_tbas):
     if df_customers_ret !=0:
 
         df_customers=get_specyfic_data_from_any_tab(df_customers_ret,customers_where,cust_from_var)
-        df_customers_ret=get_cleaned_data(df_customers)
+        df_customers_ret=get_data_for_version(df_customers, data_version)
 
     if df_orders_ret !=0:
 
         df_orders=get_specyfic_data_from_any_tab(df_orders_ret,orders_where,or_from_var)
-        df_orders_ret=get_cleaned_data(df_orders)
+        df_orders_ret=get_data_for_version(df_orders, data_version)
 
     if df_orderdetails_ret !=0:
 
         df_orderdetails=get_specyfic_data_from_any_tab(df_orderdetails_ret,orderdetails_where,od_from_var)
-        df_orderdetails_ret=get_cleaned_data(df_orderdetails)
+        df_orderdetails_ret=get_data_for_version(df_orderdetails, data_version)
 
     if df_products_ret !=0:
 
         df_products=get_specyfic_data_from_any_tab(df_products_ret,products_where,pr_from_var)
-        df_products_ret=get_cleaned_data(df_products)
+        df_products_ret=get_data_for_version(df_products, data_version)
 
     # dict of data from tables to return variables
     tabs_dict={

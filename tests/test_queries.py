@@ -3,6 +3,15 @@
 import pytest
 
 from config import BEST_PERFORMANCE, CLEAN_DATA, RAW_DATA, TOTAL_SALES
+from src.db import (
+    creating_dict_to_sql_query,
+    get_all_data_from_tables,
+    get_customers_select,
+    get_customers_where,
+    get_orderdetails_where,
+    get_orders_where,
+    get_products_where,
+)
 from src.metrics import get_accuracy_values_raw_vs_clean
 from src.queries import (
     get_client_data_sales_across_years,
@@ -15,6 +24,7 @@ from src.queries import (
 
 CATEGORIES = {"Audio", "Electronics", "Photo", "Tablets", "Wearables"}
 COUNTRIES = {"Poland", "Usa", "Germany", "France", "Spain", "China"}
+EMPTY_VALUES = ["", "null", "none"]
 
 
 @pytest.fixture(scope="module")
@@ -73,11 +83,36 @@ def test_clean_countries_are_only_correct_names(clean_years):
 
 
 def test_clean_countries_lose_no_sales(clean_years):
-    # Every country spelling has to be mapped, so no customer is lost in clean data
+    # Every country spelling has to be mapped, so clean data loses only customers without country
     df_clean = get_top_performance_countries(BEST_PERFORMANCE, clean_years, CLEAN_DATA)
     df_raw = get_top_performance_countries(BEST_PERFORMANCE, clean_years, RAW_DATA)
 
-    assert df_clean["Total_Sale"].sum() == pytest.approx(df_raw["Total_Sale"].sum())
+    df_raw_with_country = df_raw[~df_raw["Country_mapped"].str.strip().str.lower().isin(EMPTY_VALUES)]
+
+    assert df_clean["Total_Sale"].sum() == pytest.approx(df_raw_with_country["Total_Sale"].sum())
+
+
+def test_raw_countries_show_empty_values(clean_years):
+    # Raw data is not cleaned: NULL and "" countries are separate positions
+    df_raw = get_top_performance_countries(BEST_PERFORMANCE, clean_years, RAW_DATA)
+    df_clean = get_top_performance_countries(BEST_PERFORMANCE, clean_years, CLEAN_DATA)
+
+    assert {"NULL", ""} <= set(df_raw["Country_mapped"])
+    assert not {"NULL", ""} & set(df_clean["Country_mapped"])
+
+
+def test_only_clean_data_is_cleaned_from_nulls():
+    dict_select_where = creating_dict_to_sql_query(
+        [get_customers_select(["CustomerID", "Country"]), 0, 0, 0],
+        [get_customers_where(), get_orders_where(), get_orderdetails_where(), get_products_where()],
+    )
+
+    df_raw = get_all_data_from_tables(dict_select_where, RAW_DATA)["customers"]
+    df_clean = get_all_data_from_tables(dict_select_where, CLEAN_DATA)["customers"]
+
+    # db_shop.db has 4 customers with NULL country and 2 with ""
+    assert len(df_raw) == 59
+    assert len(df_clean) == 59 - 6
 
 
 ### Deep Dive: Client
