@@ -12,6 +12,39 @@ Explore online shop sales data with an interactive **Streamlit app**. Analyze cu
 
 Python, SQLite, Streamlit, Pandas, Matplotlib, Seaborn
 
+## 📁 Project Structure
+
+```
+Shop_app_1/
+├── app.py              # Streamlit UI (main)
+├── config.py           # static variables (DB path, modes, labels)
+├── data/
+│   ├── db_shop.db          # original SQLite database (never changed)
+│   └── db_shop_mutable.db  # copy of original, generator inserts records here (not in git)
+├── src/
+│   ├── db.py           # connection + building SELECT / WHERE
+│   ├── queries.py      # SQL queries: top performance, client deep dive
+│   ├── transform.py    # mapping months/countries/categories, cleaning, merging
+│   ├── metrics.py      # accuracy raw vs clean data
+│   ├── generator.py    # inserting generated records with polluted values
+│   └── charts.py       # leaderboards, charts, accuracy info
+├── tests/              # pytest: unit tests + integration tests on db
+└── requirements.txt
+```
+
+## ▶️ Run
+
+```
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## 🧪 Tests
+
+```
+pytest
+```
+
 ## 📅 Development Highlights
 
 - Data extraction and cleaning using SQL + Pandas  
