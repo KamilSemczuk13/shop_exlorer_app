@@ -545,7 +545,7 @@ def get_top_performance_countries(performance, year, data_version):
     dict_select_where=creating_dict_to_sql_query(list_column_of_tabs,filters)
 
     # Dictionary of dataframes with specyfic tab data
-    dict_df_of_tabs=get_all_data_from_tables(dict_select_where)
+    dict_df_of_tabs=get_all_data_from_tables(dict_select_where, data_version)
 
     return get_merged_top_performance_country(dict_df_of_tabs,performance,data_version)
 
@@ -573,7 +573,7 @@ def get_client_categories_dict(client, year, data_version):
     dict_select_where=creating_dict_to_sql_query(list_column_of_tabs,filters)
 
     # Dictionary of dataframes with specyfic tab data
-    dict_df_of_tabs=get_all_data_from_tables(dict_select_where)
+    dict_df_of_tabs=get_all_data_from_tables(dict_select_where, data_version)
 
     # Get dictionary of every category that client bought product from
     return get_dict_of_df_categories(dict_df_of_tabs, data_version)

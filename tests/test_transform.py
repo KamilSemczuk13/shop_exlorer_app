@@ -11,6 +11,7 @@ from src.transform import (
     get_map_month,
     get_mapped_categories_df,
     get_mapped_countries_df,
+    get_merged_categories_sales_of_client,
     get_merged_top_performance_country,
     get_monthly_chart_values,
     get_performance_python,
@@ -49,11 +50,11 @@ def test_mapped_countries_clean(country, expected):
 
 
 def test_mapped_countries_raw_keeps_original_values():
-    df = pd.DataFrame({"Country": ["POLAND", "pL"]})
+    df = pd.DataFrame({"Country": ["POLAND", "pL", "", None]})
 
     df = get_mapped_countries_df(df, RAW_DATA)
 
-    assert df["Country_mapped"].tolist() == ["POLAND", "pL"]
+    assert df["Country_mapped"].tolist() == ["POLAND", "pL", "", "NULL"]
 
 
 # Every spelling of the category that exists in db_shop.db
@@ -151,6 +152,27 @@ def test_merged_top_performance_country_worst():
     df = get_merged_top_performance_country(tables_for_countries(), WORST_PERFORMANCE, CLEAN_DATA)
 
     assert df["Country_mapped"].tolist() == ["France", "Poland"]
+
+
+def tables_for_client_categories():
+    return {
+        "customers": pd.DataFrame({"CustomerID": [1], "Customer": ["Jan Kowal"]}),
+        "orders": pd.DataFrame({"CustomerID": [1, 1], "OrderID": [10, 20], "Year": [2023.0, 2023.0], "Month": [3.0, 4.0]}),
+        "orderdetails": pd.DataFrame({"OrderID": [10, 20], "ProductID": ["P1", "P2"], "Quantity": [1, 1], "UnitPrice": [100.0, 50.0]}),
+        "products": pd.DataFrame({"ProductID": ["P1", "P2"], "Category": ["audio", None]}),
+    }
+
+
+def test_merged_categories_raw_shows_null_category():
+    df = get_merged_categories_sales_of_client(tables_for_client_categories(), RAW_DATA)
+
+    assert df.set_index("Category_mapped")["Total_Sale_Category"].to_dict() == {"NULL": 50.0, "audio": 100.0}
+
+
+def test_merged_categories_clean_skips_null_category():
+    df = get_merged_categories_sales_of_client(tables_for_client_categories(), CLEAN_DATA)
+
+    assert df.set_index("Category_mapped")["Total_Sale_Category"].to_dict() == {"Audio": 100.0}
 
 
 ### Helpers for charts and accuracy

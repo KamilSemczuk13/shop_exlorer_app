@@ -6,6 +6,10 @@ import streamlit as st
 from config import BEST_PERFORMANCE, RAW_DATA, WORST_PERFORMANCE
 
 
+# How NULL is shown in raw data
+NULL_LABEL="NULL"
+
+
 # Every known spelling of the country (lower, without spaces) -> correct name
 COUNTRIES_DICT={
     "polska":"Poland", "pl":"Poland", "poland":"Poland", "polonia":"Poland",
@@ -73,6 +77,8 @@ def get_mapped_countries_df(df, data_version):
 
     if data_version==RAW_DATA:
         df=df.rename(columns={"Country":"Country_mapped"})
+        # groupby skips NaN, so NULL is shown as text in raw data
+        df["Country_mapped"]=df["Country_mapped"].fillna(NULL_LABEL)
     else:
         # Removing every space, so "United States" is "unitedstates"
         df["Country_mapped"]=df["Country"].astype(str).str.replace(" ","").str.lower().map(COUNTRIES_DICT)
@@ -168,6 +174,8 @@ def get_merged_categories_sales_of_client(dict_of_tables, data_version):
     if data_version==RAW_DATA:
         df_o_cl["Month_mapped"]=df_o_cl["Month"]
         df_p_cl=df_p_cl.rename(columns={"Category":"Category_mapped"})
+        # groupby skips NaN, so NULL is shown as text in raw data
+        df_p_cl["Category_mapped"]=df_p_cl["Category_mapped"].fillna(NULL_LABEL)
     else:
         try:
             df_o_cl=get_mapped_month_df(df_o_cl)
