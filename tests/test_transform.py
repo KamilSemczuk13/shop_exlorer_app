@@ -7,6 +7,8 @@ from config import BEST_PERFORMANCE, CLEAN_DATA, RAW_DATA, WORST_PERFORMANCE
 from src.transform import (
     cleaning_data,
     get_cleaned_data,
+    get_cleaned_data_mask,
+    get_cleaned_data_with_count,
     get_concated_categories_df,
     get_map_month,
     get_mapped_categories_df,
@@ -14,8 +16,11 @@ from src.transform import (
     get_merged_categories_sales_of_client,
     get_merged_top_performance_country,
     get_monthly_chart_values,
+    get_not_null_mask,
     get_performance_python,
+    get_rejected_rows_count,
     get_valid_values_df,
+    get_valid_values_mask,
 )
 
 
@@ -122,6 +127,53 @@ def test_cleaned_data_checks_every_column():
     df = get_cleaned_data(df)
 
     assert df["CustomerID"].tolist() == [1]
+
+
+### Counting rejected rows (df is not changed)
+
+def df_with_nulls():
+    return pd.DataFrame({
+        "CustomerID": [1, 2, 3, 4],
+        "Country": ["Poland", None, " NULL ", "France"],
+        "OrderDate": ["2023-01-01", "2023-01-02", "none", ""],
+    })
+
+
+def test_not_null_mask_is_the_same_rule_as_cleaning_data():
+    df = df_with_nulls()
+
+    assert df[get_not_null_mask(df, "Country")].equals(cleaning_data(df, "Country"))
+
+
+def test_cleaned_data_mask_keeps_the_same_rows_as_cleaning():
+    df = df_with_nulls()
+
+    assert df[get_cleaned_data_mask(df)].equals(get_cleaned_data(df))
+
+
+def test_rejected_rows_count_does_not_remove_rows():
+    df = df_with_nulls()
+
+    # Row 2 and 3 have null country, row 3 and 4 have null date -> 3 rows removed
+    assert get_rejected_rows_count(df) == 3
+    assert len(df) == 4
+
+
+def test_rejected_rows_count_of_values_out_of_range():
+    df = pd.DataFrame({"Quantity": [2, 0, -3, 1], "UnitPrice": [100.0, 100.0, 100.0, None]})
+
+    assert get_rejected_rows_count(df, get_valid_values_mask) == 3
+
+
+def test_cleaned_data_with_count():
+    df_cleaned, rejected = get_cleaned_data_with_count(df_with_nulls())
+
+    assert df_cleaned["CustomerID"].tolist() == [1]
+    assert rejected == 3
+
+
+def test_rejected_rows_count_empty_df():
+    assert get_rejected_rows_count(pd.DataFrame(columns=["Country"])) == 0
 
 
 ### Merging

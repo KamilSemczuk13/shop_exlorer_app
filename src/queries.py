@@ -24,6 +24,7 @@ from src.db import (
     get_products_where,
     get_string_of_years_to_filter,
     get_string_of_years_to_filter_v2,
+    get_tables_for_version,
 )
 from src.transform import get_dict_of_df_categories, get_map_month, get_merged_top_performance_country
 
@@ -343,7 +344,7 @@ def get_top_perfromance_moths(performance, year, sale, data_version):
     if data_version==CLEAN_DATA:
         df_months_top["Month_Maped"]=df_months_top["Month"].apply(get_map_month)
     else:
-        df_months_top=df_months_top.rename(columns={"Month":"Month_Maped"})
+        df_months_top["Month_Maped"]=df_months_top["Month"].apply(get_map_month)
     
     return df_months_top
 
@@ -521,8 +522,8 @@ def get_categories_of_the_client(year, customer, data_version):
     return df_category_of_cleint
 
 
-# Function to get top countries df (data from every tab merged and ranked)
-def get_top_performance_countries(performance, year, data_version):
+# Function to get dict of selects and wheres to get countries data from tabs
+def get_countries_select_where(year):
 
     year_country=[year_country for year_country in year if  year_country is not None]
 
@@ -542,16 +543,32 @@ def get_top_performance_countries(performance, year, data_version):
 
     list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
 
-    dict_select_where=creating_dict_to_sql_query(list_column_of_tabs,filters)
+    return creating_dict_to_sql_query(list_column_of_tabs,filters)
+
+
+# Function to get top countries df (data from every tab merged and ranked)
+def get_top_performance_countries(performance, year, data_version):
 
     # Dictionary of dataframes with specyfic tab data
-    dict_df_of_tabs=get_all_data_from_tables(dict_select_where, data_version)
+    dict_df_of_tabs=get_all_data_from_tables(get_countries_select_where(year), data_version)
 
     return get_merged_top_performance_country(dict_df_of_tabs,performance,data_version)
 
 
-# Function to get dictionary of client category sales (data from every tab merged)
-def get_client_categories_dict(client, year, data_version):
+# Function to get top countries in raw and clean version, data is taken from db only once
+def get_top_performance_countries_raw_and_clean(performance, year):
+
+    dict_df_raw=get_all_data_from_tables(get_countries_select_where(year), RAW_DATA)
+    dict_df_clean=get_tables_for_version(dict_df_raw, CLEAN_DATA)
+
+    df_clean=get_merged_top_performance_country(dict_df_clean,performance,CLEAN_DATA)
+    df_raw=get_merged_top_performance_country(dict_df_raw,performance,RAW_DATA)
+
+    return df_raw, df_clean
+
+
+# Function to get dict of selects and wheres to get client categories data from tabs
+def get_client_categories_select_where(client, year):
 
     year_categories=[year_categories for year_categories in year if year_categories is not None]
     # get column to select from each tab
@@ -570,10 +587,26 @@ def get_client_categories_dict(client, year, data_version):
 
     list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
 
-    dict_select_where=creating_dict_to_sql_query(list_column_of_tabs,filters)
+    return creating_dict_to_sql_query(list_column_of_tabs,filters)
+
+
+# Function to get dictionary of client category sales (data from every tab merged)
+def get_client_categories_dict(client, year, data_version):
 
     # Dictionary of dataframes with specyfic tab data
-    dict_df_of_tabs=get_all_data_from_tables(dict_select_where, data_version)
+    dict_df_of_tabs=get_all_data_from_tables(get_client_categories_select_where(client, year), data_version)
 
     # Get dictionary of every category that client bought product from
     return get_dict_of_df_categories(dict_df_of_tabs, data_version)
+
+
+# Function to get dictionaries of client category sales in raw and clean version, data is taken from db only once
+def get_client_categories_dict_raw_and_clean(client, year):
+
+    dict_df_raw=get_all_data_from_tables(get_client_categories_select_where(client, year), RAW_DATA)
+    dict_df_clean=get_tables_for_version(dict_df_raw, CLEAN_DATA)
+
+    dict_clean=get_dict_of_df_categories(dict_df_clean, CLEAN_DATA)
+    dict_raw=get_dict_of_df_categories(dict_df_raw, RAW_DATA)
+
+    return dict_raw, dict_clean

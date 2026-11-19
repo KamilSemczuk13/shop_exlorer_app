@@ -2,6 +2,8 @@
 
 import os
 
+from src.generator_config import ERR_BAD_DATE, ERR_FAKE_NULL, ERR_INCONSISTENT, ERR_NULL, ERR_OUT_OF_RANGE
+
 # Path to db works no matter from which folder app is started
 DATA_DIR=os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
@@ -17,7 +19,7 @@ PRODUCTS_SEC="Check products "
 
 MODE_TOP="🥇Top Performance"
 MODE_CLIENT="🔍 Deep Dive: Client"
-PRDUCT_INSIGHTS="📦 Product Insights"
+# PRDUCT_INSIGHTS="📦 Product Insights"
 MODE_GENERATOR="🧪 Data Generator"
 
 BEST_PERFORMANCE="BEST 📈"
@@ -33,13 +35,7 @@ CLEAN_DATA="🧹 Clean data"
 
 ALL_YEARS="All of the years"
 
-# Types of errors that generator can insert into data
-ERR_NULL="NULL values"
-ERR_FAKE_NULL='Fake NULLs ("null", "none", "")'
-ERR_INCONSISTENT='Inconsistent spellings ("polska" / "PL" / "Polonia")'
-ERR_OUT_OF_RANGE="Out of range values (Quantity <= 0, negative price)"
-ERR_BAD_DATE="Impossible dates (2024-06-32, 2024-13-05)"
-
+# Types of errors that generator can insert into data (names of errors are in src/generator_config.py)
 ERROR_TYPES=[ERR_NULL, ERR_FAKE_NULL, ERR_INCONSISTENT, ERR_OUT_OF_RANGE, ERR_BAD_DATE]
 
 # Years of data delivery that generator can simulate

@@ -11,16 +11,18 @@ from config import (
     BEST_PERFORMANCE,
     CLEAN_DATA,
     DB_PATH,
-    ERR_BAD_DATE,
-    ERR_FAKE_NULL,
-    ERR_INCONSISTENT,
-    ERR_NULL,
-    ERR_OUT_OF_RANGE,
     ERROR_TYPES,
     MIN_SALE,
     RAW_DATA,
     TOTAL_SALES,
     WORST_PERFORMANCE,
+)
+from src.generator_config import (
+    ERR_BAD_DATE,
+    ERR_FAKE_NULL,
+    ERR_INCONSISTENT,
+    ERR_NULL,
+    ERR_OUT_OF_RANGE,
 )
 from src.db import set_db_path
 from src.queries import (
@@ -31,6 +33,7 @@ from src.queries import (
     get_years_filter_from_data,
 )
 from src.generator import (
+    CATEGORIES,
     COUNTRIES,
     ensure_mutable_db,
     generate_customers,
@@ -109,11 +112,82 @@ def test_generated_ids_continue_numbering(db):
 
 
 def test_generating_twice_appends_records(db):
-    generate_customers(db, 3, 0, ERROR_TYPES, rng())
-    generate_customers(db, 4, 0, ERROR_TYPES, rng())
+    first=generate_customers(db, 3, 0, ERROR_TYPES, rng())
+    second=generate_customers(db, 4, 0, ERROR_TYPES, random.Random(7))
 
-    assert query(db, "SELECT count(*) FROM Customers")==[(59+7,)]
-    assert query(db, "SELECT count(DISTINCT CustomerID) FROM Customers")==[(59+7,)]
+    inserted=first["inserted"]+second["inserted"]
+
+    assert second["inserted"]>0
+    assert query(db, "SELECT count(*) FROM Customers")==[(59+inserted,)]
+    assert query(db, "SELECT count(DISTINCT CustomerID) FROM Customers")==[(59+inserted,)]
+
+
+### Records with name that already exists are not inserted
+
+def test_customer_with_existing_name_is_skipped(db, monkeypatch):
+    # Only one name to draw: first record is inserted, every next one has existing name
+    monkeypatch.setattr("src.generator.FIRST_NAMES", ["Zbigniew"])
+    monkeypatch.setattr("src.generator.LAST_NAMES", ["Testowy"])
+
+    first=generate_customers(db, 3, 0, ERROR_TYPES, rng())
+    second=generate_customers(db, 3, 0, ERROR_TYPES, rng())
+
+    assert (first["inserted"], first["skipped"])==(1, 2)
+    assert (second["inserted"], second["skipped"])==(0, 3)
+    assert query(db, "SELECT count(*) FROM Customers")==[(59+1,)]
+
+
+def test_customer_name_is_compared_without_case_and_spaces(db, monkeypatch):
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE Customers SET FirstName=' JAN ', LastName='kowal' WHERE CustomerID='C001'")
+    monkeypatch.setattr("src.generator.FIRST_NAMES", ["Jan"])
+    monkeypatch.setattr("src.generator.LAST_NAMES", ["Kowal"])
+
+    result=generate_customers(db, 2, 1, ERROR_TYPES, rng())
+
+    assert (result["inserted"], result["skipped"], result["polluted"])==(0, 2, 0)
+    assert get_errors_log(db).empty
+
+
+def test_product_with_existing_name_gets_number(db, monkeypatch):
+    # Camera is in original db
+    monkeypatch.setattr("src.generator.PRODUCTS_BY_CATEGORY", {category: (["Camera"], 1, 2) for category in CATEGORIES})
+
+    result=generate_products(db, 3, 0, ERROR_TYPES, rng())
+    generate_products(db, 1, 0, ERROR_TYPES, rng())
+
+    assert result["inserted"]==3
+    assert query(db, "SELECT ProductName FROM Products WHERE ProductID>'P050' ORDER BY ProductID")==[
+        ("Camera 2",), ("Camera 3",), ("Camera 4",), ("Camera 5",)
+    ]
+
+
+def test_product_number_is_compared_without_case(db, monkeypatch):
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE Products SET ProductName=' CAMERA 2 ' WHERE ProductID='P001'")
+    monkeypatch.setattr("src.generator.PRODUCTS_BY_CATEGORY", {category: (["Camera"], 1, 2) for category in CATEGORIES})
+
+    generate_products(db, 1, 0, ERROR_TYPES, rng())
+
+    assert query(db, "SELECT ProductName FROM Products WHERE ProductID='P051'")==[("Camera 3",)]
+
+
+def test_generated_names_are_unique(db):
+    generate_customers(db, 50, 0, ERROR_TYPES, rng())
+    generate_products(db, 30, 0, ERROR_TYPES, rng())
+
+    new_customers=query(db, '''
+        SELECT count(*), count(DISTINCT lower(FirstName || ' ' || LastName)) FROM Customers
+        WHERE lower(FirstName || ' ' || LastName) IN (SELECT lower(FirstName || ' ' || LastName) FROM Customers WHERE CustomerID>'C059')
+    ''')[0]
+    new_products=query(db, '''
+        SELECT count(*), count(DISTINCT lower(ProductName)) FROM Products
+        WHERE lower(ProductName) IN (SELECT lower(ProductName) FROM Products WHERE ProductID>'P050')
+    ''')[0]
+
+    # Every generated name is only once in db (also not the same as in original records)
+    assert new_customers[0]==new_customers[1]
+    assert new_products[0]==new_products[1]
 
 
 ### Clean records (pollution 0%)
