@@ -2,6 +2,7 @@
 
 import pandas as pd
 import sqlite3
+from contextlib import closing
 
 from config import ALL_YEARS, CLEAN_DATA, DB_PATH, RAW_DATA
 from src.transform import get_cleaned_data
@@ -62,26 +63,29 @@ def get_string_of_years_to_filter_v2(years):
     return f"({conditions})", none_exist
 
 
-# Geting specyfic data from every tab that is needed
-def get_specyfic_data_from_any_tab(select,where,from_var):
+# Geting specyfic data from every tab that is needed (conn can be shared by many tabs)
+def get_specyfic_data_from_any_tab(select,where,from_var,conn=None):
 
     string_select_query=select
-    
+
     string_where_query=where
     if string_where_query==0:
         string_where_query=""
     else:
         string_where_query=f"Where {string_where_query}"
 
-    with sqlite3.connect(get_db_path()) as conn:
-        query=f'''
-        
+    query=f'''
+
 
         Select
             {string_select_query}
         From {from_var}
         {string_where_query}
         '''
+
+    if conn is None:
+        with closing(sqlite3.connect(get_db_path())) as own_conn:
+            return get_specyfic_data_from_any_tab(select, where, from_var, own_conn)
 
     cursor=conn.execute(query)
 
@@ -183,7 +187,16 @@ def get_data_for_version(df, data_version):
     if data_version==RAW_DATA:
         return df
 
-    return get_cleaned_data(df)
+    return get_cleaned_data(df.copy())
+
+
+# Function to get tabs in given version from raw tabs (raw tabs are not changed, tab not used is 0)
+def get_tables_for_version(tabs_dict, data_version):
+
+    return {
+        tab: df if isinstance(df, int) else get_data_for_version(df, data_version)
+        for tab, df in tabs_dict.items()
+    }
 
 
 # Get all tabs that are nedeed to analyse
@@ -206,26 +219,21 @@ def get_all_data_from_tables(dict_of_cols_tbas, data_version=CLEAN_DATA):
     od_from_var="Orderdetails"
     pr_from_var="Products"
 
-    # 0 if we dont need table to extract data from
-    if df_customers_ret !=0:
+    # One connection for every tab
+    with closing(sqlite3.connect(get_db_path())) as conn:
 
-        df_customers=get_specyfic_data_from_any_tab(df_customers_ret,customers_where,cust_from_var)
-        df_customers_ret=get_data_for_version(df_customers, data_version)
+        # 0 if we dont need table to extract data from
+        if df_customers_ret !=0:
+            df_customers_ret=get_specyfic_data_from_any_tab(df_customers_ret,customers_where,cust_from_var,conn)
 
-    if df_orders_ret !=0:
+        if df_orders_ret !=0:
+            df_orders_ret=get_specyfic_data_from_any_tab(df_orders_ret,orders_where,or_from_var,conn)
 
-        df_orders=get_specyfic_data_from_any_tab(df_orders_ret,orders_where,or_from_var)
-        df_orders_ret=get_data_for_version(df_orders, data_version)
+        if df_orderdetails_ret !=0:
+            df_orderdetails_ret=get_specyfic_data_from_any_tab(df_orderdetails_ret,orderdetails_where,od_from_var,conn)
 
-    if df_orderdetails_ret !=0:
-
-        df_orderdetails=get_specyfic_data_from_any_tab(df_orderdetails_ret,orderdetails_where,od_from_var)
-        df_orderdetails_ret=get_data_for_version(df_orderdetails, data_version)
-
-    if df_products_ret !=0:
-
-        df_products=get_specyfic_data_from_any_tab(df_products_ret,products_where,pr_from_var)
-        df_products_ret=get_data_for_version(df_products, data_version)
+        if df_products_ret !=0:
+            df_products_ret=get_specyfic_data_from_any_tab(df_products_ret,products_where,pr_from_var,conn)
 
     # dict of data from tables to return variables
     tabs_dict={
@@ -234,8 +242,8 @@ def get_all_data_from_tables(dict_of_cols_tbas, data_version=CLEAN_DATA):
         "orderdetails":df_orderdetails_ret,
         "products":df_products_ret
     }
-    
-    return tabs_dict
+
+    return get_tables_for_version(tabs_dict, data_version)
 
 
 # get list of columns from customers table

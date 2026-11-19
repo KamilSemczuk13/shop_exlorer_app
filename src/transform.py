@@ -95,23 +95,51 @@ def get_mapped_categories_df(df):
     return df
 
 
+# Function to get mask of rows without nulls and fake nulls in column (True = row is kept)
+def get_not_null_mask(df, col):
+
+    return (
+        (df[col].notna()) & (df[col].astype(str).str.strip() != "") &
+        (df[col].astype(str).str.strip().str.lower() != "null") &
+        (df[col].astype(str).str.strip().str.lower() != "none")
+    )
+
+
 # Function to cleaning data from nulls and fake nulls
 def cleaning_data(df, col):
 
-    return df[
-        (df[col].notna()) & (df[col].astype(str).str.strip() != "") &
-        (df[col].astype(str).str.strip().str.lower() != "null") & 
-        (df[col].astype(str).str.strip().str.lower() != "none")
-    ]
+    return df[get_not_null_mask(df, col)]
+
+
+# Function to get mask of order details with values in range (True = row is kept)
+def get_valid_values_mask(df):
+
+    quantity=pd.to_numeric(df["Quantity"], errors="coerce")
+    unit_price=pd.to_numeric(df["UnitPrice"], errors="coerce")
+
+    return (quantity>0) & (unit_price>0)
 
 
 # Function to remove order details with values out of range (Quantity <= 0, price <= 0)
 def get_valid_values_df(df):
 
-    quantity=pd.to_numeric(df["Quantity"], errors="coerce")
-    unit_price=pd.to_numeric(df["UnitPrice"], errors="coerce")
+    return df[get_valid_values_mask(df)]
 
-    return df[(quantity>0) & (unit_price>0)]
+
+# Function to get mask of rows that get_cleaned_data keeps (null in any column removes row)
+def get_cleaned_data_mask(df):
+
+    mask=pd.Series(True, index=df.index)
+    for col in df.columns:
+        mask&=get_not_null_mask(df, col)
+
+    return mask
+
+
+# Function to count rows that cleaning removes, df is not changed
+def get_rejected_rows_count(df, mask_function=get_cleaned_data_mask):
+
+    return int((~mask_function(df)).sum())
 
 
 # Geting cleaned df
@@ -121,6 +149,14 @@ def get_cleaned_data(df):
         df=cleaning_data(df, col)
 
     return df
+
+
+# Geting cleaned df and number of removed rows
+def get_cleaned_data_with_count(df):
+
+    df_cleaned=get_cleaned_data(df)
+
+    return df_cleaned, len(df)-len(df_cleaned)
 
 
 # get Top performance countries

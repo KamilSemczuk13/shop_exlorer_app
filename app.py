@@ -17,7 +17,7 @@ from config import (
     MODE_GENERATOR,
     MODE_TOP,
     MUTABLE_DB_PATH,
-    PRDUCT_INSIGHTS,
+    # PRDUCT_INSIGHTS,
     RAW_DATA,
     TOTAL_SALES,
     WORST_PERFORMANCE,
@@ -36,10 +36,12 @@ from src.generator import (
 from src.transform import get_concated_categories_df
 from src.queries import (
     get_client_categories_dict,
+    get_client_categories_dict_raw_and_clean,
     get_client_data_sales_across_years,
     get_clients_from_db,
     get_specyfic_client_data,
     get_top_performance_countries,
+    get_top_performance_countries_raw_and_clean,
     get_top_perfromance_categories,
     get_top_perfromance_customers,
     get_top_perfromance_moths,
@@ -120,7 +122,7 @@ if st.session_state["page"]=="main":
     else:
         set_db_path(DB_PATH)
 
-    st.session_state["mode"]=st.selectbox("Choose the mode below that you are interested in", [MODE_TOP,MODE_CLIENT, MODE_GENERATOR, PRDUCT_INSIGHTS])
+    st.session_state["mode"]=st.selectbox("Choose the mode below that you are interested in", [MODE_TOP,MODE_CLIENT, MODE_GENERATOR])
     
     # Top 3 mode
     if st.session_state["mode"]==MODE_TOP:
@@ -211,7 +213,7 @@ if st.session_state["page"]=="main":
             if is_raw:
                 # Clean months are mapped to names, so compare month numbers
                 df_months_clean=get_top_perfromance_moths(performance, year_clean, type_of_sale, CLEAN_DATA)
-                display_accuracy_raw_vs_clean(df_months_clean, df_months_top, "Month", "Month_Maped", "RankedMonthsBySales")
+                display_accuracy_raw_vs_clean(df_months_clean, df_months_top, "Month_Maped", "Month_Maped", "RankedMonthsBySales")
 
             leaderboard_months = leaderboard_html_inline(df_months_top,"Month_Maped", "TotalSales", "RankedMonthsBySales", performance)
             st.markdown(leaderboard_months, unsafe_allow_html=True)
@@ -220,11 +222,12 @@ if st.session_state["page"]=="main":
             description=get_description_text_top_mode(performance, "Countries", "Total Sales", years_to_desc)
             st.info(description)
 
-            df_merged_top_countries=get_top_performance_countries(performance, year, data_version)
-
+            # Raw data is compared with clean data, both versions are made from one db read
             if is_raw:
-                df_countries_clean=get_top_performance_countries(performance, year, CLEAN_DATA)
+                df_merged_top_countries, df_countries_clean=get_top_performance_countries_raw_and_clean(performance, year)
                 display_accuracy_raw_vs_clean(df_countries_clean, df_merged_top_countries, "Country_mapped", "Country_mapped", "RankedSales")
+            else:
+                df_merged_top_countries=get_top_performance_countries(performance, year, data_version)
 
             # Displaying leaderboard of countries
             leaderboard_countries=leaderboard_html_inline(df_merged_top_countries,"Country_mapped","Total_Sale", "RankedSales", performance)
@@ -281,18 +284,21 @@ if st.session_state["page"]=="main":
 
         with tab2:
 
-            dict_df=get_client_categories_dict(client, year, data_version)
-
             # Comparison only for raw data (clean data has nothing to compare with)
             dict_sets=None
             if is_raw:
-                df_categories_clean=get_concated_categories_df(get_client_categories_dict(client, year, CLEAN_DATA))
+                # Both versions are made from one db read
+                dict_df, dict_df_clean=get_client_categories_dict_raw_and_clean(client, year)
+
+                df_categories_clean=get_concated_categories_df(dict_df_clean)
                 df_categories_raw=get_concated_categories_df(dict_df)
 
                 display_accuracy_categories_raw_vs_clean(df_categories_clean, df_categories_raw)
 
                 # Sets per category to show comparison above every chart
                 dict_sets=get_category_sets_raw_vs_clean(df_categories_clean, df_categories_raw)
+            else:
+                dict_df=get_client_categories_dict(client, year, data_version)
 
             # display_plots_monthly_sales_categories_per_customer(dict_df,client,year)
             display_plots_monthly_sales_categories_per_customer(dict_df, client, year_to_desc, dict_sets)
@@ -310,9 +316,9 @@ if st.session_state["page"]=="main":
 
         col1, col2=st.columns(2)
         with col1:
-            n_customers=st.slider("👤 Number of customers", 1, 50, 5)
-            n_products=st.slider("📦 Number of products", 1, 30, 5)
-            n_orders=st.slider("🛒 Number of orders", 1, 200, 20)
+            n_customers=st.slider("👤 Number of customers", 1, 10, 5)
+            n_products=st.slider("📦 Number of products", 1, 10, 5)
+            n_orders=st.slider("🛒 Number of orders", 1, 50, 20)
         with col2:
             # Chunk of data is delivered in chosen year, dates of records are in this year
             load_year=st.selectbox("📅 Year of data delivery", LOAD_YEARS, index=LOAD_YEARS.index(2025))
@@ -341,6 +347,10 @@ if st.session_state["page"]=="main":
             try:
                 result=generator(MUTABLE_DB_PATH, n, pollution/100, error_types, load_year=load_year)
                 st.success(f"✅ Run {result['run_id']} ({load_year}): inserted {result['inserted']} {name}, polluted values: {result['polluted']}")
+
+                # Customers and products with name that already exists are not inserted
+                if result.get("skipped"):
+                    st.warning(f"⚠️ Skipped {result['skipped']} {name} with name that already exists in db")
             except ValueError as ex:
                 st.error(f"❌ {ex}")
 
@@ -379,7 +389,7 @@ if st.session_state["page"]=="main":
             with st.expander(f"Show log of inserted errors ({len(df_errors)})"):
                 st.dataframe(df_errors, hide_index=True, use_container_width=True)
 
-    # Mode products
-    if st.session_state["mode"]==PRDUCT_INSIGHTS:
-            with st.sidebar:
-                st.markdown("In this section you can choose filters that will be applied to the data that you analysing 👇")
+    # # Mode products
+    # if st.session_state["mode"]==PRDUCT_INSIGHTS:
+    #         with st.sidebar:
+    #             st.markdown("In this section you can choose filters that will be applied to the data that you analysing 👇")

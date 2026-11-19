@@ -9,32 +9,27 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from config import ERR_BAD_DATE, ERR_FAKE_NULL, ERR_INCONSISTENT, ERR_NULL, ERR_OUT_OF_RANGE
+from src.generator_config import (
+    ERR_BAD_DATE,
+    ERR_FAKE_NULL,
+    ERR_INCONSISTENT,
+    ERR_NULL,
+    ERR_OUT_OF_RANGE,
+    FIRST_NAMES,
+    LAST_NAMES,
+    PRODUCTS_BY_CATEGORY,
+)
 from src.transform import CATEGORIES_DICT, COUNTRIES_DICT
 
 
-#### DATA TO GENERATE CLEAN RECORDS
+#### DATA TO GENERATE CLEAN RECORDS (names and products are in src/generator_config.py)
 
 START_DATE=date(2022, 1, 1)
 END_DATE=date(2025, 12, 31)
 
-FIRST_NAMES=["Anna", "Piotr", "Marta", "Jan", "Ewa", "Tomasz", "Karolina", "Kamil", "Natalia", "Adam",
-             "John", "Jane", "Hans", "Marie", "Luis", "Zhang", "Ola", "Michał", "Zofia", "Paweł"]
-LAST_NAMES=["Nowak", "Kowalski", "Zielińska", "Kowal", "Lewandowski", "Wiśniewska", "Mazur", "Kaczmarek",
-            "Smith", "Doe", "Müller", "Dubois", "García", "Wei", "Wójcik", "Kamińska", "Szymański"]
-
 # Correct names (the same as clean data gives)
 COUNTRIES=sorted(set(COUNTRIES_DICT.values()))
 CATEGORIES=sorted(set(CATEGORIES_DICT.values()))
-
-# Product names and price range like in original db
-PRODUCTS_BY_CATEGORY={
-    "Electronics":(["Laptop 13\"", "Laptop 14\"", "Laptop 15\"", "Smartphone X", "Smartphone Y", "Smartphone Z", "Monitor 24\"", "Monitor 27\""], 1099, 4199),
-    "Audio":(["Headphones", "Earbuds", "Speaker", "Speaker Max"], 199.9, 599),
-    "Photo":(["Camera", "Camera Pro"], 1999, 2499),
-    "Tablets":(["Tablet Mini", "Tablet Pro"], 2299, 2499),
-    "Wearables":(["Smart Watch"], 899, 899),
-}
 
 # Which error types can be inserted into which column
 POLLUTABLE_COLUMNS={
@@ -216,7 +211,31 @@ def save_run(conn, table, load_year, pollution, inserted_rows, errors_log):
 
 #### GENERATORS
 
-# Function to insert new customers (registered in load_year)
+# Function to get key to compare names ("Jan Kowal", " jan kowal " are the same)
+def get_name_key(*names):
+
+    return " ".join(str(name).strip().lower() for name in names)
+
+
+# Function to get set of name keys that already exist in db (sql selects columns of the name)
+def get_existing_names(conn, sql):
+
+    return {get_name_key(*row) for row in conn.execute(sql).fetchall()}
+
+
+# Function to get product name that is not in db yet ("Camera" exists -> "Camera 2", "Camera 3"...)
+def get_unique_product_name(product_name, existing_names):
+
+    unique_name=product_name
+    number=2
+    while get_name_key(unique_name) in existing_names:
+        unique_name=f"{product_name} {number}"
+        number+=1
+
+    return unique_name
+
+
+# Function to insert new customers (registered in load_year), customer with existing first and last name is skipped
 def generate_customers(db_path, n, pollution, error_types, rng=None, load_year=None):
 
     rng=rng or random.Random()
@@ -228,12 +247,22 @@ def generate_customers(db_path, n, pollution, error_types, rng=None, load_year=N
     with sqlite3.connect(db_path) as conn:
         create_quality_tables(conn)
         next_number=get_next_id_number(conn, "Customers", "CustomerID", "C")
+        existing_names=get_existing_names(conn, "SELECT FirstName, LastName FROM Customers")
 
         rows=[]
-        for i in range(n):
-            customer_id=f"C{next_number+i:03d}"
+        skipped=0
+        for _ in range(n):
             first_name=rng.choice(FIRST_NAMES)
             last_name=rng.choice(LAST_NAMES)
+
+            # Customer with the same first and last name is not inserted
+            name_key=get_name_key(first_name, last_name)
+            if name_key in existing_names:
+                skipped+=1
+                continue
+            existing_names.add(name_key)
+
+            customer_id=f"C{next_number+len(rows):03d}"
 
             record={
                 "CustomerID":customer_id,
@@ -252,10 +281,10 @@ def generate_customers(db_path, n, pollution, error_types, rng=None, load_year=N
         ''', rows)
         run_id=save_run(conn, "Customers", load_year, pollution, len(rows), errors_log)
 
-    return {"run_id":run_id, "inserted":len(rows), "polluted":len(errors_log)}
+    return {"run_id":run_id, "inserted":len(rows), "polluted":len(errors_log), "skipped":skipped}
 
 
-# Function to insert new products (products have no date, load_year is only saved in log)
+# Function to insert new products (products have no date, load_year is only saved in log), existing name gets next number
 def generate_products(db_path, n, pollution, error_types, rng=None, load_year=None):
 
     rng=rng or random.Random()
@@ -264,6 +293,7 @@ def generate_products(db_path, n, pollution, error_types, rng=None, load_year=No
     with sqlite3.connect(db_path) as conn:
         create_quality_tables(conn)
         next_number=get_next_id_number(conn, "Products", "ProductID", "P")
+        existing_names=get_existing_names(conn, "SELECT ProductName FROM Products")
 
         rows=[]
         for i in range(n):
@@ -271,9 +301,13 @@ def generate_products(db_path, n, pollution, error_types, rng=None, load_year=No
             category=rng.choice(CATEGORIES)
             names, min_price, max_price=PRODUCTS_BY_CATEGORY[category]
 
+            # Product with the same name gets next number, so every name is in db only once
+            product_name=get_unique_product_name(rng.choice(names), existing_names)
+            existing_names.add(get_name_key(product_name))
+
             record={
                 "ProductID":product_id,
-                "ProductName":rng.choice(names),
+                "ProductName":product_name,
                 "Category":category,
                 "Price":round(rng.uniform(min_price, max_price), 2),
                 "StockQuantity":rng.randint(0, 200),

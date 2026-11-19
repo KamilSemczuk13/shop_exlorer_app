@@ -14,10 +14,13 @@ from src.db import (
 )
 from src.metrics import get_accuracy_values_raw_vs_clean
 from src.queries import (
+    get_client_categories_dict,
+    get_client_categories_dict_raw_and_clean,
     get_client_data_sales_across_years,
     get_clients_from_db,
     get_specyfic_client_data,
     get_top_performance_countries,
+    get_top_performance_countries_raw_and_clean,
     get_top_perfromance_categories,
     get_years_filter_from_data,
 )
@@ -113,6 +116,40 @@ def test_only_clean_data_is_cleaned_from_nulls():
     # db_shop.db has 4 customers with NULL country and 2 with ""
     assert len(df_raw) == 59
     assert len(df_clean) == 59 - 6
+
+
+### One db read for raw and clean version
+
+def test_countries_raw_and_clean_same_as_two_reads(raw_years):
+    df_raw, df_clean = get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, raw_years)
+
+    assert df_raw.equals(get_top_performance_countries(BEST_PERFORMANCE, raw_years, RAW_DATA))
+    assert df_clean.equals(get_top_performance_countries(BEST_PERFORMANCE, raw_years, CLEAN_DATA))
+
+
+def test_client_categories_raw_and_clean_same_as_two_reads(raw_years, clients):
+    for client in clients:
+        dict_raw, dict_clean = get_client_categories_dict_raw_and_clean(client, raw_years)
+
+        expected_raw = get_client_categories_dict(client, raw_years, RAW_DATA)
+        expected_clean = get_client_categories_dict(client, raw_years, CLEAN_DATA)
+
+        assert list(dict_raw) == list(expected_raw), client
+        assert list(dict_clean) == list(expected_clean), client
+        assert all(dict_raw[key].equals(expected_raw[key]) for key in dict_raw), client
+        assert all(dict_clean[key].equals(expected_clean[key]) for key in dict_clean), client
+
+
+def test_raw_and_clean_read_db_once(raw_years, monkeypatch):
+    import src.db as db
+
+    connections = []
+    real_connect = db.sqlite3.connect
+    monkeypatch.setattr(db.sqlite3, "connect", lambda *args, **kwargs: connections.append(1) or real_connect(*args, **kwargs))
+
+    get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, raw_years)
+
+    assert len(connections) == 1
 
 
 ### Deep Dive: Client
