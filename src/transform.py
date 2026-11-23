@@ -3,7 +3,7 @@
 import pandas as pd
 import streamlit as st
 
-from config import BEST_PERFORMANCE, RAW_DATA, WORST_PERFORMANCE
+from config import AVG_SALES, BEST_PERFORMANCE, MAX_SALE, MIN_SALE, RAW_DATA, TOTAL_SALES, WORST_PERFORMANCE
 
 
 # How NULL is shown in raw data
@@ -160,7 +160,14 @@ def get_cleaned_data_with_count(df):
 
 
 # get Top performance countries
-def get_merged_top_performance_country(dict_of_tables, performance, data_version):
+def get_merged_top_performance_country(dict_of_tables, performance, sale, data_version):
+
+    SALE_DICT_TO_GROUP={
+        TOTAL_SALES:"sum",
+        AVG_SALES:"mean",
+        MAX_SALE:"max",
+        MIN_SALE:"min"
+    }
 
     performance=get_performance_python(performance)
     # c-> customers
@@ -186,10 +193,13 @@ def get_merged_top_performance_country(dict_of_tables, performance, data_version
     df_c_o_od=df_c_o.merge(df_od_cl, how="inner", on="OrderID")
     df_c_o_od["Total_Sale"]=df_c_o_od["Quantity"]*df_c_o_od["UnitPrice"]
     df_final_merged_ranked=df_c_o_od[["Country_mapped","Total_Sale" ]]
-    df_grouped_country_sales=(df_final_merged_ranked.groupby("Country_mapped").sum()
-                          ).reset_index()
+    df_grouped_country_sales=(df_final_merged_ranked
+        .groupby("Country_mapped")["Total_Sale"]
+        .agg(SALE_DICT_TO_GROUP[sale])
+        .reset_index())
     df_grouped_country_sales=df_grouped_country_sales.sort_values("Total_Sale", ascending=performance)
-    df_grouped_country_sales["RankedSales"]=df_grouped_country_sales["Total_Sale"].rank(ascending=performance)
+    # method="min" gives the same ranks as sql rank() in other tabs (ties: 1, 2, 2, 4)
+    df_grouped_country_sales["RankedSales"]=df_grouped_country_sales["Total_Sale"].rank(ascending=performance, method="min")
 
     return df_grouped_country_sales
 

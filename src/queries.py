@@ -341,11 +341,9 @@ def get_top_perfromance_moths(performance, year, sale, data_version):
     # Conecting to db
     df_months_top=get_df_from_db(query)
 
-    if data_version==CLEAN_DATA:
-        df_months_top["Month_Maped"]=df_months_top["Month"].apply(get_map_month)
-    else:
-        df_months_top["Month_Maped"]=df_months_top["Month"].apply(get_map_month)
-    
+    # Months are mapped to names in both versions (raw month from impossible date is "Unknown")
+    df_months_top["Month_Maped"]=df_months_top["Month"].apply(get_map_month)
+
     return df_months_top
 
 
@@ -547,22 +545,22 @@ def get_countries_select_where(year):
 
 
 # Function to get top countries df (data from every tab merged and ranked)
-def get_top_performance_countries(performance, year, data_version):
+def get_top_performance_countries(performance, year, sale,data_version):
 
     # Dictionary of dataframes with specyfic tab data
     dict_df_of_tabs=get_all_data_from_tables(get_countries_select_where(year), data_version)
 
-    return get_merged_top_performance_country(dict_df_of_tabs,performance,data_version)
+    return get_merged_top_performance_country(dict_df_of_tabs,performance, sale, data_version)
 
 
 # Function to get top countries in raw and clean version, data is taken from db only once
-def get_top_performance_countries_raw_and_clean(performance, year):
+def get_top_performance_countries_raw_and_clean(performance, year, sale):
 
     dict_df_raw=get_all_data_from_tables(get_countries_select_where(year), RAW_DATA)
     dict_df_clean=get_tables_for_version(dict_df_raw, CLEAN_DATA)
 
-    df_clean=get_merged_top_performance_country(dict_df_clean,performance,CLEAN_DATA)
-    df_raw=get_merged_top_performance_country(dict_df_raw,performance,RAW_DATA)
+    df_clean=get_merged_top_performance_country(dict_df_clean,performance, sale,CLEAN_DATA)
+    df_raw=get_merged_top_performance_country(dict_df_raw,performance, sale, RAW_DATA)
 
     return df_raw, df_clean
 

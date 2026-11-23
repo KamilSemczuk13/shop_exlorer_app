@@ -45,6 +45,7 @@ from src.generator import (
     get_next_id_number,
     get_runs_log,
     get_tables_counts,
+    get_unusable_error_types,
 )
 from src.transform import get_mapped_categories_df, get_mapped_countries_df
 
@@ -504,3 +505,21 @@ def test_out_of_range_value(column, true_value):
 def test_null_and_fake_null():
     assert get_dirty_value(rng(), "Country", "Poland", ERR_NULL) is None
     assert get_dirty_value(rng(), "Country", "Poland", ERR_FAKE_NULL).strip().lower() in {"", "null", "none"}
+
+
+### Error types that generator can not insert
+
+@pytest.mark.parametrize("name, expected", [
+    ("customers", [ERR_OUT_OF_RANGE, ERR_BAD_DATE]),
+    ("products", [ERR_OUT_OF_RANGE, ERR_BAD_DATE]),
+    ("orders", [ERR_INCONSISTENT]),
+])
+def test_unusable_error_types(name, expected):
+    assert get_unusable_error_types(name, [ERR_NULL, ERR_FAKE_NULL, ERR_INCONSISTENT, ERR_OUT_OF_RANGE, ERR_BAD_DATE]) == expected
+
+
+def test_customers_with_only_unusable_error_types_are_not_polluted(db):
+    result=generate_customers(db, 5, 1.0, [ERR_BAD_DATE], rng=rng())
+
+    assert get_unusable_error_types("customers", [ERR_BAD_DATE]) == [ERR_BAD_DATE]
+    assert result["polluted"] == 0
