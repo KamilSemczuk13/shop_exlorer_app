@@ -79,7 +79,7 @@ def test_clean_and_raw_categories_have_same_total_sales(raw_years, clean_years):
 
 
 def test_clean_countries_are_only_correct_names(clean_years):
-    df = get_top_performance_countries(BEST_PERFORMANCE, clean_years, CLEAN_DATA)
+    df = get_top_performance_countries(BEST_PERFORMANCE, clean_years, TOTAL_SALES, CLEAN_DATA)
 
     assert set(df["Country_mapped"]) <= COUNTRIES
     assert df["Country_mapped"].notna().all()
@@ -87,8 +87,8 @@ def test_clean_countries_are_only_correct_names(clean_years):
 
 def test_clean_countries_lose_no_sales(clean_years):
     # Every country spelling has to be mapped, so clean data loses only customers without country
-    df_clean = get_top_performance_countries(BEST_PERFORMANCE, clean_years, CLEAN_DATA)
-    df_raw = get_top_performance_countries(BEST_PERFORMANCE, clean_years, RAW_DATA)
+    df_clean = get_top_performance_countries(BEST_PERFORMANCE, clean_years, TOTAL_SALES, CLEAN_DATA)
+    df_raw = get_top_performance_countries(BEST_PERFORMANCE, clean_years, TOTAL_SALES, RAW_DATA)
 
     df_raw_with_country = df_raw[~df_raw["Country_mapped"].str.strip().str.lower().isin(EMPTY_VALUES)]
 
@@ -97,8 +97,8 @@ def test_clean_countries_lose_no_sales(clean_years):
 
 def test_raw_countries_show_empty_values(clean_years):
     # Raw data is not cleaned: NULL and "" countries are separate positions
-    df_raw = get_top_performance_countries(BEST_PERFORMANCE, clean_years, RAW_DATA)
-    df_clean = get_top_performance_countries(BEST_PERFORMANCE, clean_years, CLEAN_DATA)
+    df_raw = get_top_performance_countries(BEST_PERFORMANCE, clean_years, TOTAL_SALES, RAW_DATA)
+    df_clean = get_top_performance_countries(BEST_PERFORMANCE, clean_years, TOTAL_SALES, CLEAN_DATA)
 
     assert {"NULL", ""} <= set(df_raw["Country_mapped"])
     assert not {"NULL", ""} & set(df_clean["Country_mapped"])
@@ -121,10 +121,10 @@ def test_only_clean_data_is_cleaned_from_nulls():
 ### One db read for raw and clean version
 
 def test_countries_raw_and_clean_same_as_two_reads(raw_years):
-    df_raw, df_clean = get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, raw_years)
+    df_raw, df_clean = get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, raw_years, TOTAL_SALES)
 
-    assert df_raw.equals(get_top_performance_countries(BEST_PERFORMANCE, raw_years, RAW_DATA))
-    assert df_clean.equals(get_top_performance_countries(BEST_PERFORMANCE, raw_years, CLEAN_DATA))
+    assert df_raw.equals(get_top_performance_countries(BEST_PERFORMANCE, raw_years, TOTAL_SALES, RAW_DATA))
+    assert df_clean.equals(get_top_performance_countries(BEST_PERFORMANCE, raw_years, TOTAL_SALES, CLEAN_DATA))
 
 
 def test_client_categories_raw_and_clean_same_as_two_reads(raw_years, clients):
@@ -147,7 +147,7 @@ def test_raw_and_clean_read_db_once(raw_years, monkeypatch):
     real_connect = db.sqlite3.connect
     monkeypatch.setattr(db.sqlite3, "connect", lambda *args, **kwargs: connections.append(1) or real_connect(*args, **kwargs))
 
-    get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, raw_years)
+    get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, raw_years, TOTAL_SALES)
 
     assert len(connections) == 1
 

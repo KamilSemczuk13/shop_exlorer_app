@@ -32,6 +32,7 @@ from src.generator import (
     get_errors_per_year,
     get_runs_log,
     get_tables_counts,
+    get_unusable_error_types,
 )
 from src.transform import get_concated_categories_df
 from src.queries import (
@@ -94,6 +95,23 @@ if "db_version" not in st.session_state:
     st.session_state["db_version"]=DB_ORIGINAL
 
 
+# Function to connect app to chosen db (radio is not reset after changing mode)
+def choose_db():
+
+    # Streamlit removes state of radio in mode without it (generator), so it is set again from remembered db
+    if "db_radio" not in st.session_state:
+        st.session_state["db_radio"]=st.session_state["db_version"]
+
+    st.session_state["db_version"]=st.radio("🗄️ Choose the database", [DB_ORIGINAL, DB_MUTABLE], key="db_radio")
+
+    if st.session_state["db_version"]==DB_MUTABLE:
+        # Mutable db is created as copy of original when it is used first time
+        ensure_mutable_db(DB_PATH, MUTABLE_DB_PATH)
+        set_db_path(MUTABLE_DB_PATH)
+    else:
+        set_db_path(DB_PATH)
+
+
 ##
 ### MAIN
 ##
@@ -111,18 +129,12 @@ if st.session_state["page"]=="main":
 
     st.header("Welcome to data visualisation section 📊")
 
-    # Choosing db that app is connected to
-    with st.sidebar:
-        st.session_state["db_version"]=st.radio("🗄️ Choose the database", [DB_ORIGINAL, DB_MUTABLE])
+    # # Choosing db that app is connected to
+    # with st.sidebar:
+    #     st.session_state["db_version"]=st.radio("🗄️ Choose the database", [DB_ORIGINAL, DB_MUTABLE])
 
-    if st.session_state["db_version"]==DB_MUTABLE:
-        # Mutable db is created as copy of original when it is used first time
-        ensure_mutable_db(DB_PATH, MUTABLE_DB_PATH)
-        set_db_path(MUTABLE_DB_PATH)
-    else:
-        set_db_path(DB_PATH)
-
-    st.session_state["mode"]=st.selectbox("Choose the mode below that you are interested in", [MODE_TOP,MODE_CLIENT, MODE_GENERATOR])
+    # Radio is static (selectbox lets user type text into it)
+    st.session_state["mode"]=st.radio("Choose the mode below that you are interested in", [MODE_TOP,MODE_CLIENT, MODE_GENERATOR], horizontal=True)
     
     # Top 3 mode
     if st.session_state["mode"]==MODE_TOP:
@@ -134,6 +146,8 @@ if st.session_state["page"]=="main":
         # Sidebar options
         with st.sidebar:
             st.info("In this section you can choose filters that will be applied to the data that you analysing 👇")
+
+            choose_db()
 
             st.session_state["data_version"]=st.radio("📊 Choose the version of data to analyse", [CLEAN_DATA, RAW_DATA])
             data_version=st.session_state["data_version"]
@@ -148,7 +162,7 @@ if st.session_state["page"]=="main":
 
             year_top=get_years_filter_from_data(data_version)
 
-            st.session_state["year_top"]=st.multiselect("📅 Choose the year to analyse", year_top, default=year_top[-1])
+            st.session_state["year_top"]=st.multiselect("📅 Choose the year to analyse", year_top, default=year_top)
             year=st.session_state["year_top"]
 
         years_to_desc=get_string_of_years_to_filter(year)
@@ -211,7 +225,7 @@ if st.session_state["page"]=="main":
             df_months_top=get_top_perfromance_moths(performance,year,type_of_sale, data_version)
 
             if is_raw:
-                # Clean months are mapped to names, so compare month numbers
+                # Raw and clean months are mapped to names, so names are compared
                 df_months_clean=get_top_perfromance_moths(performance, year_clean, type_of_sale, CLEAN_DATA)
                 display_accuracy_raw_vs_clean(df_months_clean, df_months_top, "Month_Maped", "Month_Maped", "RankedMonthsBySales")
 
@@ -224,10 +238,10 @@ if st.session_state["page"]=="main":
 
             # Raw data is compared with clean data, both versions are made from one db read
             if is_raw:
-                df_merged_top_countries, df_countries_clean=get_top_performance_countries_raw_and_clean(performance, year)
+                df_merged_top_countries, df_countries_clean=get_top_performance_countries_raw_and_clean(performance, year, type_of_sale)
                 display_accuracy_raw_vs_clean(df_countries_clean, df_merged_top_countries, "Country_mapped", "Country_mapped", "RankedSales")
             else:
-                df_merged_top_countries=get_top_performance_countries(performance, year, data_version)
+                df_merged_top_countries=get_top_performance_countries(performance, year, type_of_sale, data_version)
 
             # Displaying leaderboard of countries
             leaderboard_countries=leaderboard_html_inline(df_merged_top_countries,"Country_mapped","Total_Sale", "RankedSales", performance)
@@ -246,17 +260,19 @@ if st.session_state["page"]=="main":
 
             st.info("Click tabs below to view sales performance by customer, product, and more 👇")
 
+            choose_db()
+
             # Get available years from data
 
             st.session_state["data_version"]=st.radio("📊 Choose the version of data to analyse", [CLEAN_DATA, RAW_DATA])
             data_version=st.session_state["data_version"]
 
             year=get_years_filter_from_data(data_version)
-            st.session_state["year_client"]=st.multiselect("📅 Choose the year to analyse", year, year[-1])
+            st.session_state["year_client"]=st.multiselect("📅 Choose the year to analyse", year, default=year)
             year=st.session_state["year_client"]
 
             client_df=get_clients_from_db()
-            st.session_state["client_one"]=st.selectbox("👤 Choose the clinent who you want to search deeply", client_df["Name"], index=0)
+            st.session_state["client_one"]=st.selectbox("👤 Choose the client who you want to search deeply", client_df["Name"], index=0)
             client=st.session_state["client_one"]
 
         year_to_desc=get_string_of_years_to_filter(year)
@@ -311,6 +327,8 @@ if st.session_state["page"]=="main":
 
         st.info("Generator inserts new records into **🧪 Mutable DB**. Part of the records is polluted with chosen errors, every error is saved in table *Data_Quality_Errors* 👇")
 
+        st.session_state["db_version"]==DB_MUTABLE
+        
         if st.session_state["db_version"]==DB_ORIGINAL:
             st.warning(f"You are connected to **{DB_ORIGINAL}**. Choose **{DB_MUTABLE}** in the sidebar to analyse generated records.")
 
@@ -351,6 +369,13 @@ if st.session_state["page"]=="main":
                 # Customers and products with name that already exists are not inserted
                 if result.get("skipped"):
                     st.warning(f"⚠️ Skipped {result['skipped']} {name} with name that already exists in db")
+
+                # Chosen error type has no column in this table (e.g. Bad date in customers)
+                unusable=get_unusable_error_types(name, error_types)
+                if pollution>0 and error_types and len(unusable)==len(error_types):
+                    st.error(f"❌ None of chosen error types ({', '.join(unusable)}) can be inserted into {name}, polluted record can not be added. Records were inserted without errors")
+                elif pollution>0 and unusable:
+                    st.warning(f"⚠️ Error types {', '.join(unusable)} can not be inserted into {name}, only other chosen types were used")
             except ValueError as ex:
                 st.error(f"❌ {ex}")
 

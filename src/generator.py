@@ -41,6 +41,26 @@ POLLUTABLE_COLUMNS={
 
 FAKE_NULLS=["null", "NULL", "None", "none", "", " "]
 
+# Tables polluted by each generator (orders generator inserts orders and their details)
+GENERATOR_TABLES={
+    "customers":["Customers"],
+    "products":["Products"],
+    "orders":["Orders", "OrderDetails"],
+}
+
+
+# Function to get chosen error types that generator can not insert into its tables
+def get_unusable_error_types(name, error_types):
+
+    usable={
+        error_type
+        for table in GENERATOR_TABLES[name]
+        for column_errors in POLLUTABLE_COLUMNS[table].values()
+        for error_type in column_errors
+    }
+
+    return [error_type for error_type in error_types if error_type not in usable]
+
 
 #### MUTABLE DB
 

@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from config import BEST_PERFORMANCE, CLEAN_DATA, RAW_DATA, WORST_PERFORMANCE
+from config import AVG_SALES, BEST_PERFORMANCE, CLEAN_DATA, MAX_SALE, MIN_SALE, RAW_DATA, TOTAL_SALES, WORST_PERFORMANCE
 from src.transform import (
     cleaning_data,
     get_cleaned_data,
@@ -109,8 +109,8 @@ def test_merged_top_performance_country_clean_skips_values_out_of_range():
     tables = tables_for_countries()
     tables["orderdetails"]["Quantity"] = [1, -2, 1]
 
-    df_clean = get_merged_top_performance_country(tables, BEST_PERFORMANCE, CLEAN_DATA)
-    df_raw = get_merged_top_performance_country(tables_for_countries() | {"orderdetails": tables["orderdetails"]}, BEST_PERFORMANCE, RAW_DATA)
+    df_clean = get_merged_top_performance_country(tables, BEST_PERFORMANCE, TOTAL_SALES, CLEAN_DATA)
+    df_raw = get_merged_top_performance_country(tables_for_countries() | {"orderdetails": tables["orderdetails"]}, BEST_PERFORMANCE, TOTAL_SALES, RAW_DATA)
 
     # Clean: only valid order detail of Poland (100), raw: 100 + (-100)
     assert df_clean.set_index("Country_mapped")["Total_Sale"].to_dict() == {"France": 150.0, "Poland": 100.0}
@@ -187,7 +187,7 @@ def tables_for_countries():
 
 
 def test_merged_top_performance_country_clean_groups_spellings():
-    df = get_merged_top_performance_country(tables_for_countries(), BEST_PERFORMANCE, CLEAN_DATA)
+    df = get_merged_top_performance_country(tables_for_countries(), BEST_PERFORMANCE, TOTAL_SALES, CLEAN_DATA)
 
     assert df["Country_mapped"].tolist() == ["Poland", "France"]
     assert df["Total_Sale"].tolist() == [200.0, 150.0]
@@ -195,15 +195,35 @@ def test_merged_top_performance_country_clean_groups_spellings():
 
 
 def test_merged_top_performance_country_raw_keeps_spellings():
-    df = get_merged_top_performance_country(tables_for_countries(), BEST_PERFORMANCE, RAW_DATA)
+    df = get_merged_top_performance_country(tables_for_countries(), BEST_PERFORMANCE, TOTAL_SALES, RAW_DATA)
 
     assert sorted(df["Country_mapped"]) == ["France", "PL", "Polska"]
 
 
 def test_merged_top_performance_country_worst():
-    df = get_merged_top_performance_country(tables_for_countries(), WORST_PERFORMANCE, CLEAN_DATA)
+    df = get_merged_top_performance_country(tables_for_countries(), WORST_PERFORMANCE, TOTAL_SALES, CLEAN_DATA)
 
     assert df["Country_mapped"].tolist() == ["France", "Poland"]
+
+
+# Poland has two order details (100 and 2 * 50), France one (150)
+@pytest.mark.parametrize("sale, expected", [
+    (TOTAL_SALES, {"Poland": 200.0, "France": 150.0}),
+    (AVG_SALES, {"Poland": 100.0, "France": 150.0}),
+    (MAX_SALE, {"Poland": 100.0, "France": 150.0}),
+    (MIN_SALE, {"Poland": 100.0, "France": 150.0}),
+])
+def test_merged_top_performance_country_metric_of_sale(sale, expected):
+    df = get_merged_top_performance_country(tables_for_countries(), BEST_PERFORMANCE, sale, CLEAN_DATA)
+
+    assert df.set_index("Country_mapped")["Total_Sale"].to_dict() == expected
+
+
+def test_merged_top_performance_country_ties_have_the_same_rank_like_sql():
+    # Raw: Polska 100, PL 100, France 150 -> ranks 1, 2, 2
+    df = get_merged_top_performance_country(tables_for_countries(), BEST_PERFORMANCE, MAX_SALE, RAW_DATA)
+
+    assert df.set_index("Country_mapped")["RankedSales"].to_dict() == {"France": 1.0, "Polska": 2.0, "PL": 2.0}
 
 
 def tables_for_client_categories():
