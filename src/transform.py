@@ -223,10 +223,6 @@ def get_merged_categories_sales_of_client(dict_of_tables, data_version):
         # groupby skips NaN, so NULL is shown as text in raw data
         df_p_cl["Category_mapped"]=df_p_cl["Category_mapped"].fillna(NULL_LABEL)
     else:
-        try:
-            df_o_cl=get_mapped_month_df(df_o_cl)
-        except Exception as ex:
-            st.error(f"No key of month found, error: {ex}")
                      
         try:
             df_p_cl=get_mapped_categories_df(df_p_cl)
@@ -235,6 +231,11 @@ def get_merged_categories_sales_of_client(dict_of_tables, data_version):
 
         # Clean data has no values out of range
         df_od_cl=get_valid_values_df(df_od_cl)
+
+    try:
+        df_o_cl=get_mapped_month_df(df_o_cl)
+    except Exception as ex:
+        st.error(f"No key of month found, error: {ex}")
 
     df_c_o=df_o_cl.merge(df_c_cl, how="inner",on="CustomerID")
     df_c_o_od=df_c_o.merge(df_od_cl, how="inner", on="OrderID")

@@ -69,7 +69,7 @@ PRODUCTS_BY_CATEGORY={
     "Electronics":([
         "Laptop 13\"", "Laptop 14\"", "Laptop 15\"", "Laptop 16\"", "Laptop 17\"",
         "Smartphone X", "Smartphone Y", "Smartphone Z", "Smartphone Mini", "Smartphone Ultra",
-        "Monitor 24\"", "Monitor 27\"", "Monitor 32\"", "Monitor Curved 34\"", "Gaming Laptop",
+        "Monitor 24", "Monitor 27", "Monitor 32\"", "Monitor Curved 34\"", "Gaming Laptop",
         "Desktop PC", "Mini PC", "All-in-One PC", "Game Console", "Smart TV 55\"",
     ], 1099, 4199),
     "Audio":([

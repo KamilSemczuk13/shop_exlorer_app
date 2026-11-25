@@ -255,7 +255,24 @@ def get_unique_product_name(product_name, existing_names):
     return unique_name
 
 
-# Function to insert new customers (registered in load_year), customer with existing first and last name is skipped
+# How many times generator draws first and last name, before customer is skipped
+CUSTOMER_NAME_ATTEMPTS=5
+
+
+# Function to draw first and last name that is not in db yet (None after CUSTOMER_NAME_ATTEMPTS failed draws)
+def get_unique_customer_name(rng, existing_names, attempts=CUSTOMER_NAME_ATTEMPTS):
+
+    for _ in range(attempts):
+        first_name=rng.choice(FIRST_NAMES)
+        last_name=rng.choice(LAST_NAMES)
+
+        if get_name_key(first_name, last_name) not in existing_names:
+            return first_name, last_name
+
+    return None
+
+
+# Function to insert new customers (registered in load_year), customer without unique name after 5 draws is skipped
 def generate_customers(db_path, n, pollution, error_types, rng=None, load_year=None):
 
     rng=rng or random.Random()
@@ -272,15 +289,13 @@ def generate_customers(db_path, n, pollution, error_types, rng=None, load_year=N
         rows=[]
         skipped=0
         for _ in range(n):
-            first_name=rng.choice(FIRST_NAMES)
-            last_name=rng.choice(LAST_NAMES)
-
-            # Customer with the same first and last name is not inserted
-            name_key=get_name_key(first_name, last_name)
-            if name_key in existing_names:
+            # Customer with the same first and last name is not inserted, name is drawn again (max 5 times)
+            name=get_unique_customer_name(rng, existing_names)
+            if name is None:
                 skipped+=1
                 continue
-            existing_names.add(name_key)
+            first_name, last_name=name
+            existing_names.add(get_name_key(first_name, last_name))
 
             customer_id=f"C{next_number+len(rows):03d}"
 
@@ -388,14 +403,12 @@ def generate_orders(db_path, n, pollution, error_types, rng=None, load_year=None
             order_id=f"O{next_order+i}"
             customer_id, start=rng.choice(customers)
 
-            total_amount=0
             for product_id, price in rng.sample(products, min(rng.randint(1, 3), len(products))):
                 detail_id=f"OD{next_detail:04d}"
                 next_detail+=1
 
                 unit_price=price if isinstance(price, (int, float)) and price>0 else round(rng.uniform(199.9, 4199), 2)
                 quantity=rng.randint(1, 5)
-                total_amount+=unit_price*quantity
 
                 detail={
                     "OrderDetailID":detail_id,
@@ -410,7 +423,9 @@ def generate_orders(db_path, n, pollution, error_types, rng=None, load_year=None
                 "OrderID":order_id,
                 "CustomerID":customer_id,
                 "OrderDate":get_random_date(rng, start, year_end).isoformat(),
-                "TotalAmount":round(total_amount, 2),
+                # Zero as in reference db: no query reads this column,
+                # sales are counted from UnitPrice*Quantity
+                "TotalAmount":0,
             }
             orders.append(pollute_record(rng, "Orders", order_id, order, pollution, error_types, errors_log))
 
@@ -422,10 +437,16 @@ def generate_orders(db_path, n, pollution, error_types, rng=None, load_year=None
             INSERT INTO OrderDetails (OrderDetailID, OrderID, ProductID, Quantity, UnitPrice)
             VALUES (:OrderDetailID, :OrderID, :ProductID, :Quantity, :UnitPrice)
         ''', details)
-        # Order and its details are polluted separately, so both are rows of this run
-        run_id=save_run(conn, "Orders", load_year, pollution, len(orders)+len(details), errors_log)
+        # Orders and order details are saved as two runs, so every table has its own inserted and polluted rows
+        orders_errors=[error for error in errors_log if error[0]=="Orders"]
+        details_errors=[error for error in errors_log if error[0]=="OrderDetails"]
+        run_id=save_run(conn, "Orders", load_year, pollution, len(orders), orders_errors)
+        details_run_id=save_run(conn, "OrderDetails", load_year, pollution, len(details), details_errors)
 
-    return {"run_id":run_id, "inserted":len(orders), "inserted_details":len(details), "polluted":len(errors_log)}
+    return {
+        "run_id":run_id, "inserted":len(orders), "polluted":len(orders_errors),
+        "details_run_id":details_run_id, "inserted_details":len(details), "polluted_details":len(details_errors),
+    }
 
 
 #### STATE OF DB

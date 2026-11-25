@@ -1,4 +1,5 @@
 # SQL queries for Top Performance and Deep Dive: Client
+import streamlit as st
 
 from config import (
     AVG_SALES,
@@ -29,7 +30,7 @@ from src.db import (
 from src.transform import get_dict_of_df_categories, get_map_month, get_merged_top_performance_country
 
 
-# Function to get available years in data
+# Function to get available years in data (clean data has no None year)
 def get_years_filter_from_data(data_version):
 
     if data_version==RAW_DATA:
@@ -49,9 +50,7 @@ def get_years_filter_from_data(data_version):
     # Conecting to db
     data=get_df_from_db(query)
 
-    available_years=[year for year in data["OrderYear"]]
-
-    return available_years
+    return [year for year in data["OrderYear"]]
 
 
 # Function to get years filters to sql query
