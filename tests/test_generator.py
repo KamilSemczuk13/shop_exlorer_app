@@ -45,6 +45,7 @@ from src.generator import (
     get_next_id_number,
     get_runs_log,
     get_tables_counts,
+    get_unique_customer_name,
     get_unusable_error_types,
 )
 from src.transform import get_mapped_categories_df, get_mapped_countries_df
@@ -57,8 +58,9 @@ def db(tmp_path):
     return db_path
 
 
+# Seed 42 is not used, customers of original db are names drawn with it (every draw would be skipped)
 def rng():
-    return random.Random(42)
+    return random.Random(2026)
 
 
 def query(db_path, sql):
@@ -150,8 +152,28 @@ def test_customer_name_is_compared_without_case_and_spaces(db, monkeypatch):
     assert get_errors_log(db).empty
 
 
+def test_customer_name_is_drawn_again_when_it_exists(monkeypatch):
+    # First draw gives existing name, next draws can give the other first name
+    monkeypatch.setattr("src.generator.FIRST_NAMES", ["Jan", "Anna"])
+    monkeypatch.setattr("src.generator.LAST_NAMES", ["Kowal"])
+    draws=iter(["Jan", "Kowal", "Jan", "Kowal", "Anna", "Kowal"])
+    monkeypatch.setattr(random.Random, "choice", lambda self, seq: next(draws))
+
+    assert get_unique_customer_name(random.Random(), {"jan kowal"}) == ("Anna", "Kowal")
+
+
+def test_customer_name_is_none_after_five_existing_draws(monkeypatch):
+    monkeypatch.setattr("src.generator.FIRST_NAMES", ["Jan", "Anna"])
+    monkeypatch.setattr("src.generator.LAST_NAMES", ["Kowal"])
+    draws=iter(["Jan", "Kowal"]*5+["Anna", "Kowal"])
+    monkeypatch.setattr(random.Random, "choice", lambda self, seq: next(draws))
+
+    # Sixth draw would be unique, but generator stops after 5 attempts
+    assert get_unique_customer_name(random.Random(), {"jan kowal"}) is None
+
+
 def test_product_with_existing_name_gets_number(db, monkeypatch):
-    # Camera is in original db
+    # Camera, Camera 2 and Camera 3 are in original db
     monkeypatch.setattr("src.generator.PRODUCTS_BY_CATEGORY", {category: (["Camera"], 1, 2) for category in CATEGORIES})
 
     result=generate_products(db, 3, 0, ERROR_TYPES, rng())
@@ -159,18 +181,18 @@ def test_product_with_existing_name_gets_number(db, monkeypatch):
 
     assert result["inserted"]==3
     assert query(db, "SELECT ProductName FROM Products WHERE ProductID>'P050' ORDER BY ProductID")==[
-        ("Camera 2",), ("Camera 3",), ("Camera 4",), ("Camera 5",)
+        ("Camera 4",), ("Camera 5",), ("Camera 6",), ("Camera 7",)
     ]
 
 
 def test_product_number_is_compared_without_case(db, monkeypatch):
     with sqlite3.connect(db) as conn:
-        conn.execute("UPDATE Products SET ProductName=' CAMERA 2 ' WHERE ProductID='P001'")
+        conn.execute("UPDATE Products SET ProductName=' CAMERA 4 ' WHERE ProductID='P001'")
     monkeypatch.setattr("src.generator.PRODUCTS_BY_CATEGORY", {category: (["Camera"], 1, 2) for category in CATEGORIES})
 
     generate_products(db, 1, 0, ERROR_TYPES, rng())
 
-    assert query(db, "SELECT ProductName FROM Products WHERE ProductID='P051'")==[("Camera 3",)]
+    assert query(db, "SELECT ProductName FROM Products WHERE ProductID='P051'")==[("Camera 5",)]
 
 
 def test_generated_names_are_unique(db):
@@ -329,8 +351,24 @@ def test_every_run_is_saved_even_without_errors(db):
     assert df_runs.loc[first["run_id"], "PollutedRows"]==0
     assert df_runs.loc[second["run_id"], "LoadYear"]==2024
     assert df_runs.loc[second["run_id"], "PollutionLevel"]==0.5
-    # Orders run has rows of orders and order details
-    assert df_runs.loc[second["run_id"], "InsertedRows"]==second["inserted"]+second["inserted_details"]
+    assert df_runs.loc[second["run_id"], "InsertedRows"]==second["inserted"]
+
+
+def test_orders_and_order_details_have_separate_runs(db):
+    result=generate_orders(db, 10, 1, ERROR_TYPES, rng(), load_year=2024)
+
+    df_runs=get_runs_log(db).set_index("RunID")
+    df_errors=get_errors_log(db)
+
+    assert result["details_run_id"]==result["run_id"]+1
+    assert df_runs.loc[result["run_id"], ["TableName", "InsertedRows", "PollutedRows"]].tolist()==["Orders", 10, result["polluted"]]
+    assert df_runs.loc[result["details_run_id"], ["TableName", "InsertedRows", "PollutedRows"]].tolist()==[
+        "OrderDetails", result["inserted_details"], result["polluted_details"]
+    ]
+    # Errors of every table are saved with run of this table
+    assert set(df_errors[df_errors["TableName"]=="Orders"]["RunID"])=={result["run_id"]}
+    assert set(df_errors[df_errors["TableName"]=="OrderDetails"]["RunID"])=={result["details_run_id"]}
+    assert result["polluted"]+result["polluted_details"]==len(df_errors)
 
 
 def test_errors_have_run_year_and_pollution_level(db):

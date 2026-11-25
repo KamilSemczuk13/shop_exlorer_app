@@ -74,7 +74,7 @@ if "performance_top" not in st.session_state:
     st.session_state["performance_top"]=""
 
 if 'year_top' not in st.session_state:
-    st.session_state["year_top"]=""
+    st.session_state["year_top"]=[]
 
 if "client_one"not in st.session_state:
     st.session_state["client_one"]=""
@@ -82,8 +82,9 @@ if "client_one"not in st.session_state:
 if "clients"not in st.session_state:
     st.session_state["clients"]=""
 
+# None = years were not chosen yet, every year is selected
 if 'year_client' not in st.session_state:
-    st.session_state["year_client"]=""
+    st.session_state["year_client"]=None
 
 if "client_tab" not in st.session_state:
     st.session_state["client_tab"]=""
@@ -110,6 +111,23 @@ def choose_db():
         set_db_path(MUTABLE_DB_PATH)
     else:
         set_db_path(DB_PATH)
+
+
+# Function to show multiselect of years, chosen years stay after changing raw/clean and mode
+def choose_years(data_version, state_key):
+
+    years=get_years_filter_from_data(data_version)
+    widget_key=f"{state_key}_widget"
+
+    # Widget is set from remembered years, only years that exist in this version are selected (clean has no None)
+    chosen=st.session_state[state_key]
+    st.session_state[widget_key]=years if chosen is None else [year for year in chosen if year in years]
+
+    # Callback runs before the script, so remembered years are updated before widget is set again
+    def remember_years():
+        st.session_state[state_key]=st.session_state[widget_key]
+
+    return st.multiselect("📅 Choose the year to analyse", years, key=widget_key, on_change=remember_years)
 
 
 ##
@@ -160,11 +178,9 @@ if st.session_state["page"]=="main":
         
             type_of_sale=st.radio("📊 Select metric:",[TOTAL_SALES,AVG_SALES,MAX_SALE,MIN_SALE])
 
-            year_top=get_years_filter_from_data(data_version)
+            year=choose_years(data_version, "year_top")
 
-            st.session_state["year_top"]=st.multiselect("📅 Choose the year to analyse", year_top, default=year_top)
-            year=st.session_state["year_top"]
-
+            
         years_to_desc=get_string_of_years_to_filter(year)
 
         # Raw data is compared with clean data, clean data has no None years
@@ -267,9 +283,7 @@ if st.session_state["page"]=="main":
             st.session_state["data_version"]=st.radio("📊 Choose the version of data to analyse", [CLEAN_DATA, RAW_DATA])
             data_version=st.session_state["data_version"]
 
-            year=get_years_filter_from_data(data_version)
-            st.session_state["year_client"]=st.multiselect("📅 Choose the year to analyse", year, default=year)
-            year=st.session_state["year_client"]
+            year=choose_years(data_version, "year_client")
 
             client_df=get_clients_from_db()
             st.session_state["client_one"]=st.selectbox("👤 Choose the client who you want to search deeply", client_df["Name"], index=0)
@@ -327,7 +341,7 @@ if st.session_state["page"]=="main":
 
         st.info("Generator inserts new records into **🧪 Mutable DB**. Part of the records is polluted with chosen errors, every error is saved in table *Data_Quality_Errors* 👇")
 
-        st.session_state["db_version"]==DB_MUTABLE
+        st.session_state["db_version"]=DB_MUTABLE
         
         if st.session_state["db_version"]==DB_ORIGINAL:
             st.warning(f"You are connected to **{DB_ORIGINAL}**. Choose **{DB_MUTABLE}** in the sidebar to analyse generated records.")
@@ -365,6 +379,10 @@ if st.session_state["page"]=="main":
             try:
                 result=generator(MUTABLE_DB_PATH, n, pollution/100, error_types, load_year=load_year)
                 st.success(f"✅ Run {result['run_id']} ({load_year}): inserted {result['inserted']} {name}, polluted values: {result['polluted']}")
+
+                # Orders generator inserts order details too, they have their own run
+                if "details_run_id" in result:
+                    st.success(f"✅ Run {result['details_run_id']} ({load_year}): inserted {result['inserted_details']} order details, polluted values: {result['polluted_details']}")
 
                 # Customers and products with name that already exists are not inserted
                 if result.get("skipped"):
