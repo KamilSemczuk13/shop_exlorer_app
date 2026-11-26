@@ -379,21 +379,25 @@ def get_specyfic_client_data(year, customer,data_version):
     valid_values=get_valid_values_filter_sql(data_version)
 
     query=f'''
-
+        With OrderTotals AS (
+            Select
+                o.OrderID,
+                round(strftime('%Y', o.OrderDate)) AS OrderYear,
+                round(strftime('%m', o.OrderDate), 0) AS Month,
+                SUM(od.UnitPrice * od.Quantity) AS OrderTotal
+            From customers as c
+            Inner join orders as o On c.CustomerID=o.CustomerID
+            Inner join orderdetails as od On o.OrderID=od.OrderID
+            Where Concat(c.FirstName, " ", c.LastName)='{customer}' {year_exclude} {valid_values}
+            Group by o.OrderID
+        )
         Select
-            o.OrderID as OrderID,
-            round(strftime('%Y', o.OrderDate)) AS OrderYear,
-            round(strftime('%m',OrderDate),0) AS Month,
-            SUM(od.UnitPrice * od.Quantity) AS TotalSales,
-            AVG(od.UnitPrice * od.Quantity) AS AvgSales
-        From customers as c
-        Inner join orders as o
-            On c.CustomerID=o.CustomerID
-        inner join orderdetails as od
-            On O.OrderID=od.OrderID
-        Where Concat(c.FirstName, " ", c.LastName)='{customer}' {year_exclude} {valid_values}
-        Group by o.OrderID,OrderYear, Month
-        
+            OrderYear,
+            Month,
+            SUM(OrderTotal) AS TotalSales,   -- suma sprzedaży w miesiącu
+            AVG(OrderTotal) AS AvgSales      -- średnia wartość zamówienia w miesiącu
+        From OrderTotals
+        Group by OrderYear, Month
     '''
 
     # Conecting to db
