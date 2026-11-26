@@ -26,7 +26,10 @@ from src.generator_config import (
 )
 from src.db import set_db_path
 from src.queries import (
+    get_client_categories_dict_raw_and_clean,
     get_client_data_sales_across_years,
+    get_specyfic_client_data,
+    get_top_performance_countries_raw_and_clean,
     get_top_perfromance_categories,
     get_top_perfromance_customers,
     get_top_perfromance_products,
@@ -483,10 +486,10 @@ def test_clean_categories_have_no_empty_category(connected_db):
     df_clean=get_top_perfromance_categories(WORST_PERFORMANCE, years, TOTAL_SALES, CLEAN_DATA)
     df_raw=get_top_perfromance_categories(WORST_PERFORMANCE, years, TOTAL_SALES, RAW_DATA)
 
-    assert set(df_clean["Category_Fixed"])=={"Audio", "Electronics", "Photo", "Tablets", "Wearables"}
+    assert set(df_clean["Category_mapped"])=={"Audio", "Electronics", "Photo", "Tablets", "Wearables"}
     assert df_clean["RankedCategorysBySales"].tolist()==[1, 2, 3, 4, 5]
     # Raw data still shows empty categories
-    raw_categories=df_raw["Category_Fixed"]
+    raw_categories=df_raw["Category_mapped"]
     assert raw_categories.isna().any() or raw_categories.astype(str).str.strip().str.lower().isin(["", "null", "none"]).any()
 
 
@@ -561,3 +564,50 @@ def test_customers_with_only_unusable_error_types_are_not_polluted(db):
 
     assert get_unusable_error_types("customers", [ERR_BAD_DATE]) == [ERR_BAD_DATE]
     assert result["polluted"] == 0
+
+
+def test_raw_deep_dive_keeps_orders_with_impossible_date(connected_db):
+    with sqlite3.connect(connected_db) as conn:
+        conn.execute("INSERT INTO Customers VALUES ('C900', 'Test', 'Client', 't@example.com', 'Poland', '2022-01-01')")
+        conn.execute("INSERT INTO Orders VALUES ('O9001', 'C900', '2023-05-05', 0)")
+        conn.execute("INSERT INTO Orders VALUES ('O9002', 'C900', '2024-13-05', 0)")
+        conn.execute("INSERT INTO OrderDetails VALUES ('OD9001', 'O9001', 'P001', 1, 100.0)")
+        conn.execute("INSERT INTO OrderDetails VALUES ('OD9002', 'O9002', 'P001', 1, 50.0)")
+
+    years=[None, "2023"]
+
+    df_years=get_client_data_sales_across_years(years, "Test Client", RAW_DATA)
+    df_months=get_specyfic_client_data(years, "Test Client", RAW_DATA)
+    dict_raw, dict_clean=get_client_categories_dict_raw_and_clean("Test Client", years)
+
+    # Raw: NULL year and month of impossible date are kept (month is shown as NULL)
+    assert df_years["OrderYear"].isna().sum()==1
+    assert df_months[df_months["Month"].isna()]["Month_normal"].tolist()==["NULL"]
+    df_raw=pd.concat(dict_raw.values())
+    assert df_raw[df_raw["Year"].isna()][["Month_mapped", "Total_Sale_Category"]].values.tolist()==[["NULL", 50.0]]
+
+    # Clean: order with impossible date is removed
+    assert get_specyfic_client_data(["2023"], "Test Client", CLEAN_DATA)["Month"].notna().all()
+    assert pd.concat(dict_clean.values())["Year"].notna().all()
+
+    # Without None in filter order with impossible date is not taken
+    dict_raw, _=get_client_categories_dict_raw_and_clean("Test Client", ["2023"])
+    assert pd.concat(dict_raw.values())["Year"].notna().all()
+
+
+def test_raw_countries_keep_orders_with_impossible_date(connected_db):
+    with sqlite3.connect(connected_db) as conn:
+        conn.execute("INSERT INTO Customers VALUES ('C900', 'Test', 'Client', 't@example.com', 'Atlantis', '2022-01-01')")
+        conn.execute("INSERT INTO Orders VALUES ('O9001', 'C900', '2023-05-05', 0)")
+        conn.execute("INSERT INTO Orders VALUES ('O9002', 'C900', '2024-13-05', 0)")
+        conn.execute("INSERT INTO OrderDetails VALUES ('OD9001', 'O9001', 'P001', 1, 100.0)")
+        conn.execute("INSERT INTO OrderDetails VALUES ('OD9002', 'O9002', 'P001', 1, 50.0)")
+
+    df_raw, df_clean=get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, [None, "2023"], TOTAL_SALES)
+    df_raw_without_none, _=get_top_performance_countries_raw_and_clean(BEST_PERFORMANCE, ["2023"], TOTAL_SALES)
+
+    # Raw: order with impossible date is counted only when None is chosen
+    assert df_raw.set_index("Country_mapped")["Total_Sale"]["Atlantis"]==150.0
+    assert df_raw_without_none.set_index("Country_mapped")["Total_Sale"]["Atlantis"]==100.0
+    # Clean: "Atlantis" can not be mapped, order with impossible date is removed
+    assert "Atlantis" not in df_clean["Country_mapped"].tolist()

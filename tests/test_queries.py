@@ -61,13 +61,13 @@ def test_clean_years_have_no_empty_year(clean_years):
 def test_clean_categories_are_only_correct_names(clean_years):
     df = get_top_perfromance_categories(BEST_PERFORMANCE, clean_years, TOTAL_SALES, CLEAN_DATA)
 
-    assert set(df["Category_Fixed"]) == CATEGORIES
+    assert set(df["Category_mapped"]) == CATEGORIES
 
 
 def test_raw_categories_have_other_spellings(raw_years):
     df = get_top_perfromance_categories(BEST_PERFORMANCE, raw_years, TOTAL_SALES, RAW_DATA)
 
-    assert not set(df["Category_Fixed"]) <= CATEGORIES
+    assert not set(df["Category_mapped"]) <= CATEGORIES
 
 
 def test_clean_and_raw_categories_have_same_total_sales(raw_years, clean_years):

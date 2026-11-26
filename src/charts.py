@@ -1,5 +1,6 @@
 # Visualisation: leaderboards, charts and accuracy info bars in Streamlit
 
+import pandas as pd
 import streamlit as st
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -10,8 +11,20 @@ from config import (
     MAX_SALE,
     MIN_SALE,
 )
-from src.transform import get_monthly_chart_values
+from src.transform import NULL_LABEL, get_monthly_chart_values
 from src.metrics import get_accuracy_raw_vs_clean, get_accuracy_values_raw_vs_clean, get_category_set_key
+
+
+# Function to get years as labels of chart (2023.0 -> "2023"), seaborn skips NaN, so NULL year of raw data is "NULL"
+def get_year_labels(years):
+
+    return years.map(lambda year: NULL_LABEL if pd.isna(year) else str(int(year)))
+
+
+# Function to get order of year labels in chart (NULL first, then years ascending)
+def get_year_labels_order(year_labels):
+
+    return sorted(set(year_labels), key=lambda label: (label!=NULL_LABEL, label))
 
 
 # Description of action of the leaderboard
@@ -20,6 +33,26 @@ def get_description_text_top_mode(performance, tab, type_of_sales, years):
     text=f"The LEADERBOARD below is showing you {performance}  *{tab}* in **{type_of_sales}** in **{years}**"
 
     return text
+
+
+# Columns of tables that have only integer values (sql round() gives float)
+INTEGER_COLUMNS=["OrderYear", "Year", "Month", "LoadYear"]
+
+
+# Display table that user can not sort or reorder (st.dataframe lets user click headers and drag columns)
+def display_static_table(df, hide_index=False):
+
+    # Year and month are shown as text of integer (2023, not 2,023.0000 or 2,023), empty year of raw data is None
+    df=df.copy()
+    for col in INTEGER_COLUMNS:
+        if col in df.columns:
+            df[col]=pd.to_numeric(df[col]).map(lambda value: None if pd.isna(value) else str(int(value)))
+
+    # st.table has no hide_index, so first column is shown as index
+    if hide_index and not df.empty:
+        df=df.set_index(df.columns[0])
+
+    st.table(df)
 
 
 # Display info bar with accuracy and comparison table
@@ -34,7 +67,7 @@ def display_accuracy_info(matches, total, df_comparison, what="positions", show_
 
     if show_table:
         with st.expander("Show comparison clean vs raw"):
-            st.dataframe(df_comparison, use_container_width=True)
+            display_static_table(df_comparison)
 
 
 # Display total accuracy of client categories (every category together)
@@ -128,10 +161,13 @@ def display_plots_sales_years_per_customer(df, type_of_sales,customer, year):
     # Tworzenie wykresu
     fig, ax = plt.subplots(figsize=(8, 3))  # szerszy, niższy kontener
 
+    df=df.assign(OrderYear=get_year_labels(df["OrderYear"]))
+
     sns.barplot(
         x="OrderYear",
         y="TotalSales",
         data=df,
+        order=get_year_labels_order(df["OrderYear"]),
         ax=ax,
         dodge=True,         # rozdziela słupki dla hue
         width=0.6,  # zmniejsza szerokość słupków
@@ -166,10 +202,13 @@ def get_monthly_sales_chart(df, type_of_sales, customer,year):
     # Tworzenie wykresu
     fig, ax = plt.subplots(figsize=(8, 3))  # szerszy, niższy kontener
 
+    df=df.assign(OrderYear=get_year_labels(df["OrderYear"]))
+
     sns.barplot(
         x="Month_normal",
         y=f"{type_of_sales}",
         hue="OrderYear",
+        hue_order=get_year_labels_order(df["OrderYear"]),
         data=df,
         ax=ax,
         dodge=True,         # rozdziela słupki dla hue
@@ -226,11 +265,14 @@ def get_barplot_of_category_client_monthly_sales(df,customer,category,year):
 
     fig, ax=plt.subplots(figsize=(5,2))
 
+    df=df.assign(Year=get_year_labels(df["Year"]))
+
     sns.barplot(
         data=df,
         x="Month_mapped",
         y="Total_Sale_Category",
-        hue="Year"
+        hue="Year",
+        hue_order=get_year_labels_order(df["Year"])
     )
 
     ax.set_title(f"{customer}`s monthly {category} sales in {year}")

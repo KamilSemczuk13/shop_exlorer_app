@@ -1,5 +1,4 @@
 # SQL queries for Top Performance and Deep Dive: Client
-import streamlit as st
 
 from config import (
     AVG_SALES,
@@ -27,7 +26,14 @@ from src.db import (
     get_string_of_years_to_filter_v2,
     get_tables_for_version,
 )
-from src.transform import get_dict_of_df_categories, get_map_month, get_merged_top_performance_country
+from src.transform import (
+    get_dict_of_df_categories,
+    get_map_month,
+    get_mapped_categories_df,
+    get_merged_top_performance_country,
+    get_top_performance_categories_df,
+    NULL_LABEL,
+)
 
 
 # Function to get available years in data (clean data has no None year)
@@ -59,9 +65,9 @@ def get_years_filter_to_query_sql(years):
     year=get_string_of_years_to_filter(years)
 
     year_group=f", OrderYear"
-    year_having=f" AND TotalSales is not null AND OrderYear in {year} AND OrderYear is not null"
+    year_exclude=f"AND OrderYear in {year} AND OrderYear is not null"
 
-    return year_group, year_having
+    return year_group, year_exclude
 
 
 # Function to get raw years to filter
@@ -82,14 +88,12 @@ def get_years_filter_to_query_sql_raw(years):
 
 # Function to get years filters to sql query
 # Year is in WHERE, because in HAVING (after GROUP BY customer) SQLite takes OrderDate of random order
+# No HAVING: in clean data NULL sales are removed in WHERE (Quantity>0 AND UnitPrice>0), so TotalSales is never NULL
 def get_years_filter_to_query_sql_v2(years):
 
     year=get_string_of_years_to_filter(years)
 
-    year_where=f"round(strftime('%Y', o.OrderDate)) in {year} AND round(strftime('%Y', o.OrderDate)) is not null"
-    year_having=" Having TotalSales is not null"
-
-    return year_where, year_having
+    return f"round(strftime('%Y', o.OrderDate)) in {year} AND round(strftime('%Y', o.OrderDate)) is not null"
 
 
 # Function to get raw years to filter
@@ -101,10 +105,7 @@ def get_years_filter_to_query_sql_v2_raw(years):
     if none_exist==True:
         none_year="OR round(strftime('%Y', o.OrderDate)) is Null"
 
-    year_where=f"(round(strftime('%Y', o.OrderDate)) in {year} {none_year})"
-    year_having=""
-
-    return year_where, year_having
+    return f"(round(strftime('%Y', o.OrderDate)) in {year} {none_year})"
 
 
 # Function to get WHERE of top performance queries: years + correct values in clean data
@@ -123,7 +124,7 @@ def get_valid_values_filter_sql(data_version):
     if data_version==RAW_DATA:
         return ""
 
-    return "Where od.Quantity>0 AND od.UnitPrice>0"
+    return "AND od.Quantity>0 AND od.UnitPrice>0"
 
 
 # Function to get choosen metric of slaes directly to sql query
@@ -159,9 +160,9 @@ def get_top_perfromance_customers(performance, year, sale, data_version):
     performance=get_performance_sql(performance)
 
     if data_version==RAW_DATA:
-        year_where, year_having=get_years_filter_to_query_sql_v2_raw(year)
+        year_where=get_years_filter_to_query_sql_v2_raw(year)
     else:
-        year_where, year_having=get_years_filter_to_query_sql_v2(year)
+        year_where=get_years_filter_to_query_sql_v2(year)
 
 
     # Years and (in clean data) no values out of range
@@ -181,7 +182,6 @@ def get_top_perfromance_customers(performance, year, sale, data_version):
                 On od.OrderID=o.OrderID
             {valid_values}
             Group by FullName
-            {year_having}
         )
 
         Select 
@@ -205,9 +205,9 @@ def get_top_perfromance_products(performance, year, sale,data_version):
     performance=get_performance_sql(performance)
 
     if data_version==RAW_DATA:
-        year_where, year_having=get_years_filter_to_query_sql_v2_raw(year)
+        year_where=get_years_filter_to_query_sql_v2_raw(year)
     else:
-        year_where, year_having=get_years_filter_to_query_sql_v2(year)
+        year_where=get_years_filter_to_query_sql_v2(year)
 
     # Years and (in clean data) no values out of range
     valid_values=get_top_where_sql(year_where, data_version)
@@ -225,7 +225,6 @@ def get_top_perfromance_products(performance, year, sale,data_version):
                 On o.OrderID=od.OrderID
             {valid_values}
             Group by p.ProductName
-            {year_having}
         )
 
         Select 
@@ -245,57 +244,31 @@ def get_top_perfromance_products(performance, year, sale,data_version):
 # Function to get categories performance from data
 def get_top_perfromance_categories(performance, year, sale, data_version):
 
-    #Get metric of sale
-    sale=get_metric_sale_sql(sale)
-
-    # Get Filter of performance
-    performance=get_performance_sql(performance)
-
+    # Only filters of rows are in sql (years and correct values), mapping and grouping is in pandas
     if data_version==RAW_DATA:
-        year_where, year_having=get_years_filter_to_query_sql_v2_raw(year)
-        categories_to_query="p.Category AS Category_Fixed,"
+        year_where=get_years_filter_to_query_sql_v2_raw(year)
     else:
-        year_where, year_having=get_years_filter_to_query_sql_v2(year)
-        # Category that can not be mapped (NULL, "null", "") is not in clean data, before ranking
-        year_having+=" AND Category_Fixed is not null"
-        categories_to_query='''
-        Case 
-            When replace(lower(p.Category), " ", "") = "electronics" Then "Electronics"
-            When replace(lower(p.Category)," ","")="audio" Then "Audio"
-            When replace(lower(p.Category), " ","")="photo" Then "Photo"
-            When replace(lower(p.Category), " ","")="tablets" Then "Tablets"
-            When replace(lower(p.Category), " ","")="wearables" Then "Wearables"
-        END AS Category_Fixed,
-        '''
-    
+        year_where=get_years_filter_to_query_sql_v2(year)
+
     # Years and (in clean data) no values out of range
     valid_values=get_top_where_sql(year_where, data_version)
 
     query=f'''
-        With RankedCategoryTab AS(
-            Select 
-                {categories_to_query}
-                {sale}(od.UnitPrice * od.Quantity) AS TotalSales,
-                rank() over(order by {sale}(od.UnitPrice * od.Quantity) {performance}) AS RankedCategorysBySales
-            From products as p
-            Inner join orderdetails as od
-                On od.ProductID=p.ProductID
-            Inner join orders as o
-                On o.OrderID=od.OrderID
-            {valid_values}
-            Group by Category_Fixed
-            {year_having}
-        )
-
         Select 
-            Category_Fixed,
-            TotalSales,
-            RankedCategorysBySales
-        From RankedCategoryTab
-        Where RankedCategorysBySales<=10;   
+            p.Category,
+            od.UnitPrice * od.Quantity AS Sale
+        From products as p
+        Inner join orderdetails as od
+            On od.ProductID=p.ProductID
+        Inner join orders as o
+            On o.OrderID=od.OrderID
+        {valid_values};
     '''
 
-    df_categories_top=get_df_from_db(query)
+    df_sales=get_df_from_db(query)
+
+    # Category map (clean), metric of sale per category and rank of top 10
+    df_categories_top=get_top_performance_categories_df(df_sales, performance, sale, data_version)
     return df_categories_top
 
 
@@ -306,9 +279,9 @@ def get_top_perfromance_moths(performance, year, sale, data_version):
     performance=get_performance_sql(performance)
 
     if data_version==RAW_DATA:
-        year_where, year_having=get_years_filter_to_query_sql_v2_raw(year)
+        year_where=get_years_filter_to_query_sql_v2_raw(year)
     else:
-        year_where, year_having=get_years_filter_to_query_sql_v2(year)
+        year_where=get_years_filter_to_query_sql_v2(year)
 
     # Years and (in clean data) no values out of range
     valid_values=get_top_where_sql(year_where, data_version)
@@ -326,7 +299,6 @@ def get_top_perfromance_moths(performance, year, sale, data_version):
                 On o.OrderID=od.OrderID
             {valid_values}
             Group by Month
-            {year_having}
         )
 
         Select 
@@ -364,9 +336,9 @@ def get_clients_from_db():
 def get_client_data_sales_across_years(year, customer,data_version ):
 
     if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_raw(year)
+        year_exclude=get_years_filter_to_query_sql_raw(year)[1]
     else:
-        year_group, year_having=get_years_filter_to_query_sql(year)
+        year_exclude=get_years_filter_to_query_sql(year)[1]
 
     country=""
 
@@ -384,9 +356,9 @@ def get_client_data_sales_across_years(year, customer,data_version ):
             On c.CustomerID=o.CustomerID
         inner join orderdetails as od
             On O.OrderID=od.OrderID
-        {valid_values}
+        Where Concat(c.FirstName, " ", c.LastName)='{customer}' {year_exclude} {valid_values}
         Group by Customer, OrderYear
-        Having Customer="{customer}" {year_having}
+        
         
     '''
     #- having_year -
@@ -395,64 +367,13 @@ def get_client_data_sales_across_years(year, customer,data_version ):
 
     return df_customer_spec
 
-
-# Get info about client sales across the years
-def get_client_data_sahre_of_sale_across_years(year, customer):
-
-    year_group, year_having=get_years_filter_to_query_sql(year)
-    country=""
-
-    query=f'''
-        With GrupedSalesCustomerYears AS(
-        SELECT
-            Concat(c.FirstName, " ", c.LastName) AS Customer,
-            round(strftime('%Y', o.OrderDate)) AS OrderYear,
-            SUM(od.UnitPrice * od.Quantity) AS TotalSales
-        From customers as c
-        Inner join orders as o
-            On c.CustomerID=o.CustomerID
-        inner join orderdetails as od
-            On O.OrderID=od.OrderID
-        Group by Customer,OrderYear
-        Having TotalSales is not null AND Concat(c.FirstName, " ", c.LastName)="{customer}" {year_having}
-        ),
-
-        GruopedSalesYears AS(
-            Select
-                round(strftime('%Y', o.OrderDate)) AS OrderYear,
-                SUM(od.UnitPrice * od.Quantity) AS TotalSales
-            From customers as c
-            Inner join orders as o
-                On c.CustomerID=o.CustomerID
-            inner join orderdetails as od
-                On O.OrderID=od.OrderID
-            Group by OrderYear
-            Having TotalSales is not null {year_having}
-        )
-
-        Select 
-        gscy.Customer,
-        gscy.OrderYear,
-        (round((gscy.TotalSales/gsy.TotalSales),2) * 100 ) AS ShareOfSale
-        From GrupedSalesCustomerYears as gscy
-        Inner join GruopedSalesYears as gsy
-            On gscy.OrderYear=gsy.OrderYear
-
-    '''
-
-    df_customer_spec=get_df_from_db(query)
-
-    # Cleaning data
-    return df_customer_spec
-
-
 # Get info about client moyhly sale
 def get_specyfic_client_data(year, customer,data_version):
 
     if data_version==RAW_DATA:
-        year_group, year_having=get_years_filter_to_query_sql_raw(year)
+        year_exclude=get_years_filter_to_query_sql_raw(year)[1]
     else:
-        year_group, year_having=get_years_filter_to_query_sql(year)
+        year_exclude=get_years_filter_to_query_sql(year)[1]
 
     # Clean data has no values out of range
     valid_values=get_valid_values_filter_sql(data_version)
@@ -470,17 +391,19 @@ def get_specyfic_client_data(year, customer,data_version):
             On c.CustomerID=o.CustomerID
         inner join orderdetails as od
             On O.OrderID=od.OrderID
-        {valid_values}
+        Where Concat(c.FirstName, " ", c.LastName)='{customer}' {year_exclude} {valid_values}
         Group by o.OrderID,OrderYear, Month
-        Having Concat(c.FirstName, " ", c.LastName)="{customer}" {year_having}
+        
     '''
 
     # Conecting to db
     df_customer_spec=get_df_from_db(query)
 
-    # Cleaning data
-    df_customer_spec = df_customer_spec.dropna(subset=["Month"])
+    # Clean data has no orders without month, in raw data month of impossible date is shown as NULL
+    if data_version!=RAW_DATA:
+        df_customer_spec = df_customer_spec.dropna(subset=["Month"])
     df_customer_spec["Month_normal"]=df_customer_spec["Month"].apply(get_map_month)
+    df_customer_spec.loc[df_customer_spec["Month"].isna(), "Month_normal"]=NULL_LABEL
     df_customer_spec=df_customer_spec.sort_values("Month", ascending=True)
 
     return df_customer_spec
@@ -488,18 +411,7 @@ def get_specyfic_client_data(year, customer,data_version):
 
 def get_categories_of_the_client(year, customer, data_version):
 
-    if data_version==RAW_DATA:
-        categories_to_query="p.Category AS Category_Fixed,"
-    else:
-        categories_to_query='''
-        Case 
-            When replace(lower(p.Category), " ", "") = "electronics" Then "Electronics"
-            When replace(lower(p.Category)," ","")="audio" Then "Audio"
-            When replace(lower(p.Category), " ","")="photo" Then "Photo"
-            When replace(lower(p.Category), " ","")="tablets" Then "Tablets"
-            When replace(lower(p.Category), " ","")="wearables" Then "Wearables"
-        END AS Category_Fixed,
-        '''
+    categories_to_query="p.Category AS Category"
 
     query=f'''
 
@@ -511,17 +423,35 @@ def get_categories_of_the_client(year, customer, data_version):
             On O.OrderID=od.OrderID
         inner join products as p
             On p.ProductID=od.ProductID
-        Where Concat(c.FirstName, " ", c.LastName)="{customer}";
+        Where Concat(c.FirstName, " ", c.LastName)='{customer}';
     '''
 
     # Conecting to db
-    df_category_of_cleint=get_df_from_db(query)
+    df_category_of_raw=get_df_from_db(query)
+
+    df_category_of_cleint=df_category_of_raw
+
+    if data_version==CLEAN_DATA:
+        df_category_of_clean=get_mapped_categories_df(df_category_of_raw)
+        df_category_of_cleint=df_category_of_clean
+
     return df_category_of_cleint
+
+
+# Function to add orders with impossible date (NULL year) to where of orders, when None is chosen
+# Raw data shows them, cleaning removes them from clean data
+def get_dict_with_null_year(dict_of_cols_tabs, year):
+
+    if None in year:
+        dict_of_cols_tabs["orders"]["where"]=f"({dict_of_cols_tabs['orders']['where']} OR Year is null)"
+
+    return dict_of_cols_tabs
 
 
 # Function to get dict of selects and wheres to get countries data from tabs
 def get_countries_select_where(year):
 
+    # None can not be in sql "in (...)", it is added later as "Year is null"
     year_country=[year_country for year_country in year if  year_country is not None]
 
     # selected columns from tabs that are neded
@@ -540,7 +470,7 @@ def get_countries_select_where(year):
 
     list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
 
-    return creating_dict_to_sql_query(list_column_of_tabs,filters)
+    return get_dict_with_null_year(creating_dict_to_sql_query(list_column_of_tabs,filters), year)
 
 
 # Function to get top countries df (data from every tab merged and ranked)
@@ -567,6 +497,7 @@ def get_top_performance_countries_raw_and_clean(performance, year, sale):
 # Function to get dict of selects and wheres to get client categories data from tabs
 def get_client_categories_select_where(client, year):
 
+    # None can not be in sql "in (...)", it is added below as "Year is null"
     year_categories=[year_categories for year_categories in year if year_categories is not None]
     # get column to select from each tab
     customers_select=get_customers_select(["CustomerID","Concat(FirstName,' ',LastName) AS Customer"])
@@ -584,7 +515,7 @@ def get_client_categories_select_where(client, year):
 
     list_column_of_tabs=[customers_select,orders_select,orderdetails_select,products_select]
 
-    return creating_dict_to_sql_query(list_column_of_tabs,filters)
+    return get_dict_with_null_year(creating_dict_to_sql_query(list_column_of_tabs,filters), year)
 
 
 # Function to get dictionary of client category sales (data from every tab merged)

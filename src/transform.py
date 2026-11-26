@@ -29,6 +29,14 @@ CATEGORIES_DICT={
     "wearables":"Wearables"
 }
 
+# Metric of sale -> pandas aggregation (the same as sql SUM, AVG, MAX, MIN)
+SALE_DICT_TO_GROUP={
+    TOTAL_SALES:"sum",
+    AVG_SALES:"mean",
+    MAX_SALE:"max",
+    MIN_SALE:"min"
+}
+
 
 # Function to get choosen performance to python sort
 def get_performance_python(performance):
@@ -162,13 +170,6 @@ def get_cleaned_data_with_count(df):
 # get Top performance countries
 def get_merged_top_performance_country(dict_of_tables, performance, sale, data_version):
 
-    SALE_DICT_TO_GROUP={
-        TOTAL_SALES:"sum",
-        AVG_SALES:"mean",
-        MAX_SALE:"max",
-        MIN_SALE:"min"
-    }
-
     performance=get_performance_python(performance)
     # c-> customers
     # o-> orders
@@ -204,6 +205,48 @@ def get_merged_top_performance_country(dict_of_tables, performance, sale, data_v
     return df_grouped_country_sales
 
 
+# Function to get metric of sale per group, NULL group is kept (like sql GROUP BY)
+def get_grouped_sales(df, group_col, sale_col, sale):
+
+    grouped=df.groupby(group_col, dropna=False)[sale_col]
+
+    # min_count=1: sum of only NULL sales is NULL (like sql SUM), not 0
+    if sale==TOTAL_SALES:
+        return grouped.sum(min_count=1)
+
+    return grouped.agg(SALE_DICT_TO_GROUP[sale])
+
+
+# Function to get top 10 categories from rows of sales (Category, Sale), the same as sql rank()
+def get_top_performance_categories_df(df, performance, sale, data_version):
+
+    ascending=get_performance_python(performance)
+
+    if data_version==RAW_DATA:
+        df=df.rename(columns={"Category":"Category_mapped"})
+    else:
+        # Category that can not be mapped (NULL, "null", "") is not in clean data, before ranking
+        df=get_mapped_categories_df(df).dropna(subset=["Category_mapped"])
+
+
+    df_grouped=get_grouped_sales(df, "Category_mapped", "Sale", sale).reset_index(name="TotalSales")
+
+    # Clean data has no NULL sales (sql: Having TotalSales is not null)
+    if data_version!=RAW_DATA:
+        df_grouped=df_grouped.dropna(subset=["TotalSales"])
+
+    # Sql treats NULL as the lowest value: last in desc, first in asc, method="min" gives ties like sql rank()
+    df_grouped["RankedCategorysBySales"]=df_grouped["TotalSales"].rank(
+        ascending=ascending, method="min", na_option="top" if ascending else "bottom"
+    ).astype(int)
+
+    df_grouped=df_grouped[df_grouped["RankedCategorysBySales"]<=10].sort_values("RankedCategorysBySales", kind="stable")
+    # NULL category is shown as None, like in result of sql
+    df_grouped["Category_mapped"]=df_grouped["Category_mapped"].astype(object).where(df_grouped["Category_mapped"].notna(), None)
+
+    return df_grouped.reset_index(drop=True)
+
+
 # Function to get df of merged categories of client sales
 def get_merged_categories_sales_of_client(dict_of_tables, data_version):
     # c-> customers
@@ -231,11 +274,13 @@ def get_merged_categories_sales_of_client(dict_of_tables, data_version):
 
         # Clean data has no values out of range
         df_od_cl=get_valid_values_df(df_od_cl)
-
     try:
         df_o_cl=get_mapped_month_df(df_o_cl)
     except Exception as ex:
         st.error(f"No key of month found, error: {ex}")
+
+    # Month of impossible date (only in raw data) is shown as NULL
+    df_o_cl.loc[df_o_cl["Month"].isna(), "Month_mapped"]=NULL_LABEL
 
     df_c_o=df_o_cl.merge(df_c_cl, how="inner",on="CustomerID")
     df_c_o_od=df_c_o.merge(df_od_cl, how="inner", on="OrderID")
@@ -243,7 +288,8 @@ def get_merged_categories_sales_of_client(dict_of_tables, data_version):
     df_c_o_od_p["Total_Sale"]=df_c_o_od_p["Quantity"]*df_c_o_od_p["UnitPrice"]
 
     # get df with avreage and sum of monthly Total sales of categories
-    df_grouped_categories_sales=(df_c_o_od_p.groupby(["Category_mapped","Month_mapped","Month","Year"]).agg(
+    # Raw data keeps orders with NULL year and month, clean data skips category that can not be mapped (NaN)
+    df_grouped_categories_sales=(df_c_o_od_p.groupby(["Category_mapped","Month_mapped","Month","Year"], dropna=data_version!=RAW_DATA).agg(
 
         Avg_Sale=("Total_Sale","mean"),
         Total_Sale_Category=("Total_Sale","sum")
