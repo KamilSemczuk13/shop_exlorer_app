@@ -19,6 +19,7 @@ from src.transform import (
     get_not_null_mask,
     get_performance_python,
     get_rejected_rows_count,
+    get_top_performance_categories_df,
     get_valid_values_df,
     get_valid_values_mask,
 )
@@ -226,6 +227,56 @@ def test_merged_top_performance_country_ties_have_the_same_rank_like_sql():
     assert df.set_index("Country_mapped")["RankedSales"].to_dict() == {"France": 1.0, "Polska": 2.0, "PL": 2.0}
 
 
+def sales_for_categories():
+    return pd.DataFrame({
+        "Category": ["Audio", " audio ", "PHOTO", None, "null", "Tablets"],
+        "Sale": [100.0, 50.0, 300.0, 40.0, 10.0, 150.0],
+    })
+
+
+def test_top_categories_clean_maps_and_skips_null_categories():
+    df = get_top_performance_categories_df(sales_for_categories(), BEST_PERFORMANCE, TOTAL_SALES, CLEAN_DATA)
+
+    assert df["Category_mapped"].tolist() == ["Photo", "Audio", "Tablets"]
+    assert df["TotalSales"].tolist() == [300.0, 150.0, 150.0]
+    # Ties like sql rank(): 1, 2, 2
+    assert df["RankedCategorysBySales"].tolist() == [1, 2, 2]
+
+
+def test_top_categories_raw_keeps_spellings_and_null():
+    df = get_top_performance_categories_df(sales_for_categories(), WORST_PERFORMANCE, TOTAL_SALES, RAW_DATA)
+
+    assert df["Category_mapped"].tolist() == ["null", None, " audio ", "Audio", "Tablets", "PHOTO"]
+    assert df["RankedCategorysBySales"].tolist() == [1, 2, 3, 4, 5, 6]
+
+
+@pytest.mark.parametrize("performance, expected", [(BEST_PERFORMANCE, ["Audio", "Photo"]), (WORST_PERFORMANCE, ["Photo", "Audio"])])
+def test_top_categories_raw_null_sale_is_the_lowest_like_sql(performance, expected):
+    # Sum of only NULL sales is NULL (not 0): last in best, first in worst
+    df = pd.DataFrame({"Category": ["Audio", "Photo"], "Sale": [100.0, None]})
+
+    df = get_top_performance_categories_df(df, performance, TOTAL_SALES, RAW_DATA)
+
+    assert df["Category_mapped"].tolist() == expected
+    assert df.set_index("Category_mapped")["TotalSales"].isna().to_dict() == {"Audio": False, "Photo": True}
+
+
+def test_top_categories_only_top_10():
+    df = pd.DataFrame({"Category": [f"cat{i}" for i in range(12)], "Sale": [float(i) for i in range(12)]})
+
+    df = get_top_performance_categories_df(df, BEST_PERFORMANCE, MAX_SALE, RAW_DATA)
+
+    assert len(df) == 10
+    assert df["Category_mapped"].iloc[0] == "cat11"
+
+
+def test_top_categories_empty():
+    df = get_top_performance_categories_df(pd.DataFrame(columns=["Category", "Sale"]), BEST_PERFORMANCE, TOTAL_SALES, CLEAN_DATA)
+
+    assert df.empty
+    assert list(df.columns) == ["Category_mapped", "TotalSales", "RankedCategorysBySales"]
+
+
 def tables_for_client_categories():
     return {
         "customers": pd.DataFrame({"CustomerID": [1], "Customer": ["Jan Kowal"]}),
@@ -287,3 +338,13 @@ def test_concated_categories_df_empty_has_columns():
 
     assert df.empty
     assert list(df.columns) == ["Category_mapped", "Year", "Month", "Total_Sale_Category"]
+
+
+def test_merged_categories_raw_keeps_null_year_and_month():
+    tables = tables_for_client_categories()
+    tables["orders"]["Year"] = [2023.0, None]
+    tables["orders"]["Month"] = [3.0, None]
+
+    df = get_merged_categories_sales_of_client(tables, RAW_DATA)
+
+    assert df[df["Year"].isna()][["Category_mapped", "Month_mapped", "Total_Sale_Category"]].values.tolist() == [["NULL", "NULL", 50.0]]

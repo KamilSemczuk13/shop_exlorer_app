@@ -39,7 +39,7 @@ POLLUTABLE_COLUMNS={
     "OrderDetails":{"Quantity":[ERR_OUT_OF_RANGE], "UnitPrice":[ERR_NULL, ERR_OUT_OF_RANGE]},
 }
 
-FAKE_NULLS=["null", "NULL", "None", "none", "", " "]
+FAKE_NULLS=["null", "None", "none", "", " "]
 
 # Tables polluted by each generator (orders generator inserts orders and their details)
 GENERATOR_TABLES={

@@ -58,6 +58,7 @@ from src.charts import (
     display_errors_per_year_charts,
     display_plots_monthly_sales_categories_per_customer,
     display_plots_sales_years_per_customer,
+    display_static_table,
     get_description_text_top_mode,
     leaderboard_html_inline,
 )
@@ -128,6 +129,22 @@ def choose_years(data_version, state_key):
         st.session_state[state_key]=st.session_state[widget_key]
 
     return st.multiselect("📅 Choose the year to analyse", years, key=widget_key, on_change=remember_years)
+
+
+# Function to show selectbox of clients, chosen client stays after rerun and changing mode
+def choose_client():
+
+    clients=get_clients_from_db()["Name"].tolist()
+
+    # Remembered client is selected, first client if nothing was chosen or client is not in this db
+    chosen=st.session_state["client_one"]
+    st.session_state["client_one_widget"]=chosen if chosen in clients else clients[0]
+
+    # Callback runs before the script, so remembered client is updated before widget is set again
+    def remember_client():
+        st.session_state["client_one"]=st.session_state["client_one_widget"]
+
+    return st.selectbox("👤 Choose the client who you want to search deeply", clients, key="client_one_widget", on_change=remember_client)
 
 
 ##
@@ -227,9 +244,9 @@ if st.session_state["page"]=="main":
 
             if is_raw:
                 df_categories_clean=get_top_perfromance_categories(performance, year_clean, type_of_sale, CLEAN_DATA)
-                display_accuracy_raw_vs_clean(df_categories_clean, df_categories_top, "Category_Fixed", "Category_Fixed", "RankedCategorysBySales")
+                display_accuracy_raw_vs_clean(df_categories_clean, df_categories_top, "Category_mapped", "Category_mapped", "RankedCategorysBySales")
 
-            leaderboard_categories = leaderboard_html_inline(df_categories_top,"Category_Fixed", "TotalSales", "RankedCategorysBySales",performance)
+            leaderboard_categories = leaderboard_html_inline(df_categories_top,"Category_mapped", "TotalSales", "RankedCategorysBySales",performance)
             st.markdown(leaderboard_categories, unsafe_allow_html=True)
 
         with tab4:
@@ -285,9 +302,7 @@ if st.session_state["page"]=="main":
 
             year=choose_years(data_version, "year_client")
 
-            client_df=get_clients_from_db()
-            st.session_state["client_one"]=st.selectbox("👤 Choose the client who you want to search deeply", client_df["Name"], index=0)
-            client=st.session_state["client_one"]
+            client=choose_client()
 
         year_to_desc=get_string_of_years_to_filter(year)
 
@@ -400,19 +415,19 @@ if st.session_state["page"]=="main":
         # State of mutable db after generating
         st.subheader("📋 State of Mutable DB")
 
-        col1, col2=st.columns(2)
-        with col1:
-            st.markdown("**Rows in tables**")
-            st.dataframe(get_tables_counts(MUTABLE_DB_PATH), hide_index=True, use_container_width=True)
+        # col1, col2=st.columns(2)
+        # with col1:
+        st.markdown("**Rows in tables**")
+        display_static_table(get_tables_counts(MUTABLE_DB_PATH), hide_index=True)
 
         df_errors=get_errors_log(MUTABLE_DB_PATH)
-        with col2:
-            st.markdown("**Inserted errors**")
-            if df_errors.empty:
-                st.caption("No errors inserted yet")
-            else:
-                df_errors_count=df_errors.groupby(["TableName","ErrorType"]).size().reset_index(name="Count")
-                st.dataframe(df_errors_count, hide_index=True, use_container_width=True)
+        # with col2:
+        st.markdown("**Inserted errors**")
+        if df_errors.empty:
+            st.caption("No errors inserted yet")
+        else:
+            df_errors_count=df_errors.groupby(["TableName","ErrorType"]).size().reset_index(name="Count")
+            display_static_table(df_errors_count, hide_index=True)
 
         # Errors in every year of data delivery
         st.subheader("📈 Errors per year of data delivery")
@@ -422,7 +437,7 @@ if st.session_state["page"]=="main":
         display_errors_per_year_charts(df_errors, df_years)
 
         if not df_years.empty:
-            st.dataframe(df_years, hide_index=True, use_container_width=True)
+            display_static_table(df_years, hide_index=True)
 
         if not df_runs.empty:
             with st.expander(f"Show log of generator runs ({len(df_runs)})"):
